@@ -28,8 +28,6 @@ O resultado antigo de 40% usava apenas um holdout de dez mensagens. Ele não dev
 
 Leia `resultados/resumo.md` e `resultados/erros.csv`. O JSON guarda os IDs de treino/teste, as configurações e as versões. Os arquivos gerados não são versionados; são recriados pelo comando.
 
-SHA-256 do CSV fornecido: `e7a3380c8d968e1f8c9ea43d88741310a15675c3dfbad0b3e2f7fcd53d640c08`.
-
 SHA-256 da base canônica processada: `8dd21cdf712e54edef1b2cd375b57c00e09e930b532a170af6e881dee098b231`. A definição da serialização está em `metadados.formato_hash` no JSON.
 
 ## O que ainda falta validar
