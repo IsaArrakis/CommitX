@@ -1,0 +1,51 @@
+id,titulo,descricao,categoria,grupo,origem
+demo-001,fix(admin): corrigir paginação de usuários,A segunda página repetia os registros da primeira.,fix,demo-001,sintetico_didatico
+demo-002,Impedir divisão por zero no cálculo da média,A lista vazia causava uma exceção.,fix,demo-002,sintetico_didatico
+demo-003,fix(login): renovar sessão expirada,O usuário era desconectado durante a navegação.,fix,demo-003,sintetico_didatico
+demo-004,Corrigir desconto aplicado duas vezes no carrinho,,fix,demo-004,sintetico_didatico
+demo-005,fix(api): tratar resposta nula do servidor,A tela travava quando o serviço não retornava dados.,fix,demo-005,sintetico_didatico
+demo-006,Corrigir data exibida com um dia de atraso,,fix,demo-006,sintetico_didatico
+demo-007,fix(upload): impedir perda de arquivos com nomes iguais,Preserva ambos os arquivos usando identificadores únicos.,fix,demo-007,sintetico_didatico
+demo-008,Restaurar botão de salvar que parou de responder,,fix,demo-008,sintetico_didatico
+demo-009,fix(busca): corrigir resultados com acentos,A busca não encontrava palavras acentuadas.,fix,demo-009,sintetico_didatico
+demo-010,Corrigir bug que permitia estoque negativo,Bloqueia a venda quando não há unidades disponíveis.,fix,demo-010,sintetico_didatico
+demo-011,feat(conta): adicionar recuperação de senha,Permite solicitar um link por email.,feat,demo-011,sintetico_didatico
+demo-012,Permitir exportação dos relatórios em PDF,,feat,demo-012,sintetico_didatico
+demo-013,feat(perfil): permitir envio de foto,O usuário pode escolher uma imagem para o perfil.,feat,demo-013,sintetico_didatico
+demo-014,Adicionar filtro de produtos por faixa de preço,,feat,demo-014,sintetico_didatico
+demo-015,feat(chat): permitir envio de mensagens de voz,Disponibiliza gravação e reprodução de áudio.,feat,demo-015,sintetico_didatico
+demo-016,Criar opção de pagamento com Pix,,feat,demo-016,sintetico_didatico
+demo-017,feat(painel): incluir gráfico de vendas mensais,Mostra os totais agrupados por mês.,feat,demo-017,sintetico_didatico
+demo-018,Disponibilizar autenticação em duas etapas,Solicita um código adicional no acesso.,feat,demo-018,sintetico_didatico
+demo-019,feat(agenda): enviar lembretes de compromissos,Notifica o usuário antes do horário marcado.,feat,demo-019,sintetico_didatico
+demo-020,Adicionar suporte ao idioma espanhol,,feat,demo-020,sintetico_didatico
+demo-021,docs(readme): explicar instalação do projeto,Descreve as dependências necessárias.,docs,demo-021,sintetico_didatico
+demo-022,Documentar parâmetros da API de pagamentos,,docs,demo-022,sintetico_didatico
+demo-023,docs(guia): incluir exemplo de autenticação,Mostra como informar o token na requisição.,docs,demo-023,sintetico_didatico
+demo-024,Corrigir link do manual de configuração,,docs,demo-024,sintetico_didatico
+demo-025,docs: descrever variáveis de ambiente,Explica a finalidade de cada configuração.,docs,demo-025,sintetico_didatico
+demo-026,Traduzir instruções de contribuição para português,,docs,demo-026,sintetico_didatico
+demo-027,docs(api): atualizar exemplos de resposta,Alinha a documentação ao formato já utilizado.,docs,demo-027,sintetico_didatico
+demo-028,Acrescentar instruções para executar os testes,Documenta os comandos disponíveis no projeto.,docs,demo-028,sintetico_didatico
+demo-029,docs: explicar arquitetura no guia técnico,Apresenta a responsabilidade dos módulos.,docs,demo-029,sintetico_didatico
+demo-030,Revisar erros de digitação na documentação,,docs,demo-030,sintetico_didatico
+demo-031,refactor(auth): extrair validação para função própria,Mantém as regras e o resultado do login.,refactor,demo-031,sintetico_didatico
+demo-032,Renomear variáveis do cálculo de frete,Torna os nomes descritivos sem alterar o cálculo.,refactor,demo-032,sintetico_didatico
+demo-033,refactor(api): remover duplicação entre controladores,Compartilha a lógica existente preservando as respostas.,refactor,demo-033,sintetico_didatico
+demo-034,Separar acesso ao banco da lógica de negócio,Preserva o comportamento das operações.,refactor,demo-034,sintetico_didatico
+demo-035,refactor(carrinho): simplificar condicionais,Mantém os mesmos descontos em cada situação.,refactor,demo-035,sintetico_didatico
+demo-036,Dividir classe de relatórios em módulos menores,Não altera os relatórios produzidos.,refactor,demo-036,sintetico_didatico
+demo-037,refactor: centralizar constantes de configuração,Substitui valores repetidos sem mudar seus valores.,refactor,demo-037,sintetico_didatico
+demo-038,Extrair formatação de moeda para função compartilhada,,refactor,demo-038,sintetico_didatico
+demo-039,refactor(busca): reorganizar construção da consulta,Mantém os mesmos filtros e resultados.,refactor,demo-039,sintetico_didatico
+demo-040,Remover função interna sem referências no código,,refactor,demo-040,sintetico_didatico
+demo-041,test(auth): cobrir tentativa de login inválido,Verifica a resposta para senha incorreta.,test,demo-041,sintetico_didatico
+demo-042,Adicionar testes unitários do cálculo de frete,,test,demo-042,sintetico_didatico
+demo-043,test(api): verificar resposta para recurso inexistente,Confere o código HTTP e a mensagem retornada.,test,demo-043,sintetico_didatico
+demo-044,Criar teste de integração do cadastro de usuários,,test,demo-044,sintetico_didatico
+demo-045,test(carrinho): testar combinação de cupons,Inclui cenários com descontos simultâneos.,test,demo-045,sintetico_didatico
+demo-046,Adicionar casos de teste para datas bissextas,,test,demo-046,sintetico_didatico
+demo-047,test(upload): simular falha na transferência,Verifica o tratamento de interrupção da conexão.,test,demo-047,sintetico_didatico
+demo-048,Substituir serviço externo por mock nos testes,Evita chamadas reais durante a suíte.,test,demo-048,sintetico_didatico
+demo-049,test: verificar ordenação dos resultados da busca,Confere a sequência de itens retornados.,test,demo-049,sintetico_didatico
+demo-050,Corrigir expectativa desatualizada no teste de estoque,,test,demo-050,sintetico_didatico

@@ -1,97 +1,132 @@
 # CommitX
 
-Protótipo acadêmico em Python para classificar a intenção de mensagens de commit e oferecer recomendações de escrita. Esta é a versão inicial, em um único arquivo, para estudar o fluxo de aprendizado supervisionado.
+Protótipo acadêmico em Python que classifica a intenção de mensagens de commit e recomenda melhorias de escrita. Recebe título e descrição e sugere uma de cinco categorias: `fix`, `feat`, `docs`, `refactor` ou `test`.
 
-## O que o projeto faz
+A classificação usa aprendizado supervisionado. A revisão de escrita usa regras explicáveis e não atribui nota de clareza. O programa não lê o diff para confirmar o que mudou no código.
 
-- Classifica título e descrição em `fix`, `feat`, `docs`, `refactor` ou `test`.
-- Usa **TF-IDF + Regressão Logística** para a classificação.
-- Mostra o tipo declarado no cabeçalho separadamente da categoria prevista.
-- Oferece recomendações de escrita por **regras**, sem uma nota de clareza validada.
-- Gera relatório com métricas, matriz de confusão e previsões do teste.
+## Começar no Linux
 
-## Instalação e execução
+Você precisa de Python 3.10 ou superior, Git e acesso autorizado ao repositório privado. Autentique sua conta do GitHub no cliente Git que utiliza. Não coloque senhas ou tokens no código ou na URL do repositório.
 
-Requer Python 3.10 ou superior. No Linux, dentro da pasta que contém `commits.py`:
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python commits.py avaliar
-.venv/bin/python commits.py analisar "fix(admin): bug no painel"
-```
-
-Os comandos funcionam em bash e fish sem precisar ativar o ambiente virtual. Para incluir a descrição:
-
-```bash
-.venv/bin/python commits.py analisar "fix(admin): corrigir paginação de usuários" --descricao "A segunda página repetia os registros da primeira. Corrige o deslocamento da consulta."
-```
-
-O código Python deve ser salvo em `commits.py`; os blocos acima são os comandos executados no terminal. O caminho `/workspace` usado no ambiente Cloud da conversa não corresponde a uma pasta no seu computador.
-
-### Obter o projeto do GitHub
-
-O repositório é privado. A conta usada para baixar ou clonar precisa ter acesso. Com o Git autenticado, escolha uma pasta onde guardar a cópia e execute:
+No terminal, entre na pasta em que deseja guardar o projeto e clone em uma pasta nova:
 
 ```bash
 git clone https://github.com/IsaArrakis/CommitX.git
 cd CommitX
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python commits.py
 ```
 
-Também é possível usar **Code → Download ZIP** no GitHub e extrair os arquivos. A pasta local antiga `commit-claro` continua separada desta cópia; clonar o repositório não a altera.
+Os comandos usam o Python do ambiente virtual diretamente e funcionam em Bash e Fish, sem ativação. Se o Git informar que o repositório não existe, confira a conta autenticada e seu acesso ao repositório privado. Se a pasta `CommitX` já existir, escolha outra pasta de destino para o clone; não sobrescreva seus arquivos.
 
-## Dados e rótulos
+Outra opção é abrir o repositório no GitHub, escolher **Code → Download ZIP**, extrair e abrir o terminal dentro da pasta que contém `commits.py`. Nesse caso, comece pelo comando `python3 -m venv .venv`. Para acompanhar novas versões com `git pull --ff-only`, use um clone autenticado; um ZIP não contém o histórico Git.
 
-A constante `DADOS`, em `commits.py`, contém **50 exemplos sintéticos em português**, dez por categoria. Os exemplos e os rótulos foram elaborados com assistência de IA, para demonstração. Não são commits coletados de repositórios e precisam de revisão humana.
+Uma pasta antiga chamada `commit-claro` não se torna um clone do CommitX automaticamente. Use a cópia clonada para executar estes comandos e acompanhar as alterações do repositório.
 
-Cada linha usa o formato `categoria|titulo|descricao`; a descrição pode estar vazia. As categorias representam a intenção descrita na mensagem:
+Sem argumentos, o programa abre o modo interativo. Digite um título e, opcionalmente, uma descrição de uma linha. Ele treina uma vez ao iniciar e reutiliza o modelo durante a sessão. Um título vazio ou `Ctrl+C` encerra.
 
-| Categoria | Definição |
+## Analisar mensagens
+
+```bash
+.venv/bin/python commits.py analisar "fix(admin): bug no painel"
+.venv/bin/python commits.py analisar "Corrigir paginação de usuários" --descricao "A segunda página repetia os registros da primeira."
+.venv/bin/python commits.py analisar "docs: corrigir link de instalação no README" --json
+.venv/bin/python commits.py interativo --modelo palavras
+```
+
+O modo `--json` imprime a mesma análise em formato estruturado. O modelo padrão é `misto`; `--modelo palavras` seleciona a alternativa baseada somente em palavras. Para usar outra base já rotulada:
+
+```bash
+.venv/bin/python commits.py analisar "Adicionar filtro por status" --dados dados/commits_revisados.csv --modelo misto
+.venv/bin/python commits.py interativo --dados dados/commits_revisados.csv
+```
+
+A saída separa o tipo declarado no cabeçalho, a categoria sugerida e os alertas de escrita. Uma divergência entre tipo e previsão pede revisão humana; ela não prova que o autor errou. Tipos explicitamente declarados fora das cinco classes e textos sem características conhecidas não recebem sugestão automática. Isso não detecta todos os casos fora do escopo.
+
+Os modelos para preencher contêm campos entre colchetes. O autor precisa completá-los com informações reais; o programa não inventa o bug ou a implementação. “Arrumar” não é uma palavra proibida. O problema de “arrumar bug no painel” é não identificar qual comportamento mudou.
+
+## Avaliar e gerar relatórios
+
+```bash
+.venv/bin/python commits.py avaliar
+.venv/bin/python commits.py avaliar --dados dados/commits_revisados.csv --folds 5 --saida resultados_reais
+```
+
+A avaliação compara três alternativas nas mesmas divisões dos dados:
+
+| Alternativa | Características e classificador |
 | --- | --- |
-| `fix` | Corrigir um comportamento defeituoso existente |
-| `feat` | Adicionar uma capacidade nova |
-| `docs` | Alterar documentação |
-| `refactor` | Reorganizar código preservando o comportamento |
-| `test` | Adicionar ou alterar testes |
+| `palavras` | TF-IDF de palavras isoladas e pares de palavras + Regressão Logística |
+| `misto` | As características anteriores + fragmentos de 3 a 5 caracteres dentro das palavras + Regressão Logística |
+| `maioria` | Prevê sempre a categoria mais frequente do treino |
 
-O prefixo convencional e seu escopo são removidos do título antes de alimentar o modelo. Assim, o classificador precisa usar o restante da mensagem em vez de apenas copiar o rótulo inicial.
+O modelo `palavras` preserva os parâmetros da versão inicial. Além de caracteres, o `misto` usa frequência sublinear e balanceamento de classes. A comparação é entre essas configurações completas; não isola o efeito de adicionar caracteres. Os parâmetros foram definidos antes de observar esta avaliação.
 
-## Avaliação
+O padrão são cinco divisões de validação cruzada. Com um grupo distinto por mensagem, usa-se `StratifiedKFold`; com grupos repetidos, usa-se `StratifiedGroupKFold`, mantendo cada grupo inteiro de um lado da divisão. Cada classe precisa de grupos suficientes; a avaliação recusa divisões sem alguma classe.
 
-`avaliar` usa uma divisão estratificada com semente 42: **40 exemplos para treino e 10 para teste**, dois por classe no teste. O `Pipeline` aprende o vocabulário e os pesos do TF-IDF somente com o treino.
+O TF-IDF é ajustado somente no treino de cada divisão. Cada mensagem recebe uma previsão *out of fold* (OOF): produzida por um modelo que não a utilizou no treino. A acurácia e o macro-F1 OOF são calculados sobre essas previsões reunidas. A macro-F1 dá o mesmo peso às cinco classes; o desvio entre divisões descreve variação, não um intervalo de confiança.
 
-O comando salva `resultados/relatorio.json` com:
+Por padrão, os arquivos são escritos em `resultados/`:
 
-- Precisão, recall, F1 e suporte por classe.
-- Macro-F1 do modelo e de uma referência que sempre prevê a classe mais comum do treino.
-- Matriz de confusão: linhas = categoria de referência; colunas = previsão; ordem em `ordem_matriz`.
-- Textos e previsões do teste, índices das linhas, semente e versão do scikit-learn.
+| Arquivo | Conteúdo |
+| --- | --- |
+| `resumo.md` | Comparação das métricas e limites do experimento |
+| `relatorio.json` | Métricas por classe, divisões, identificadores e configuração |
+| `previsoes.csv` | Todas as mensagens, rótulos e previsões dos três modelos |
+| `erros.csv` | Mensagens que o modelo misto classificou incorretamente |
+| `matriz_confusao.csv` | Matriz do modelo misto: linhas reais, colunas previstas |
 
-Nesta base, uma execução com Python 3.12.14 e scikit-learn 1.8.0 produziu acurácia de **0,40**, macro-F1 de **0,413** e macro-F1 da referência de **0,067**. Esses números documentam uma execução didática; não demonstram desempenho em commits reais. Use os números gerados no seu ambiente no relatório do trabalho.
+Escolha outra pasta em `--saida` para preservar uma execução anterior. Comece a leitura por `resumo.md` e depois examine `erros.csv`.
 
-`analisar` treina com os 50 exemplos para demonstrar uma nova entrada. Um acerto nesse comando não altera a avaliação de teste e não constitui uma validação independente.
+Não compare diretamente o antigo resultado de `0,40`, obtido com um teste de dez mensagens, com a nova validação cruzada sobre cinquenta mensagens: o protocolo mudou. A comparação válida entre `palavras`, `misto` e `maioria` é a feita nas mesmas divisões desta execução. Adicionar caracteres não garante melhorar o resultado.
 
-## Limites da versão inicial
+Os resultados verificados desta base estão em [Resultados da demonstração](docs/RESULTADOS_DEMONSTRACAO.md).
 
-- A base é pequena, artificial e pouco diversa. Não há promessa de precisão.
-- O programa analisa a mensagem, não o diff. Não verifica se o código mudou como descrito ou se um bug foi resolvido.
-- A categoria declarada é reconhecida por um padrão simples de cabeçalho, sem validar toda a especificação Conventional Commits.
-- As recomendações de escrita são heurísticas: palavras como “bug” e ausência de corpo apenas sugerem revisão. Uma mensagem curta pode ser suficiente; “arrumar” não é uma palavra proibida.
-- O classificador conhece cinco categorias. Tipos como `chore`, `ci`, `build` e mensagens com várias intenções exigem revisão. Uma entrada fora do escopo ainda pode receber uma das cinco classes.
-- A única abstenção automática ocorre quando o texto não contém nenhum termo conhecido pelo vocabulário.
+## Dados e coleta de commits reais
 
-## Próximos passos para o trabalho
+`dados/commits_exemplo.csv` mantém os 50 exemplos sintéticos da base inicial, dez por categoria, criados com assistência de IA e identificados como `sintetico_didatico`. Eles servem para aprender e demonstrar o fluxo. Não são commits coletados de projetos reais.
 
-1. Revisar os rótulos e entender as previsões erradas antes de alterar o modelo.
-2. Coletar commits reais e guardar origem, identificador, mensagem completa e categoria revisada. Não copiar o prefixo automaticamente como resposta correta.
-3. Separar exemplos sintéticos e reais nos resultados. Remover duplicatas e manter paráfrases ou mensagens relacionadas no mesmo conjunto; com uma base ampliada, considerar uma divisão por repositório ou grupos. A divisão atual é por linha, sem agrupamento.
-4. Reservar um teste independente antes de ajustar parâmetros. Não mudar a semente repetidamente para escolher a melhor métrica.
-5. Avaliar as recomendações de escrita com revisão humana. Para aprender clareza com ML, será necessário outro conjunto de rótulos e outro experimento.
+O CSV de treinamento usa estas colunas:
 
-A `.gitignore` exclui `.venv/`, caches e `resultados/`. Os relatórios podem ser gerados novamente; o ambiente virtual deve ser instalado em cada computador.
+| Campo | Significado |
+| --- | --- |
+| `id` | Identificador único do exemplo |
+| `titulo` | Primeira linha da mensagem |
+| `descricao` | Corpo da mensagem, que pode estar vazio |
+| `categoria` | Rótulo revisado: `fix`, `feat`, `docs`, `refactor` ou `test` |
+| `grupo` | Identificador compartilhado por exemplos relacionados ou paráfrases |
+| `origem` | Procedência explícita, como a identificação do repositório |
 
-## Referências
+O carregamento valida campos, identificadores, rótulos e duplicatas. Mensagens relacionadas devem compartilhar `grupo`; não distribua paráfrases do mesmo exemplo entre treino e teste. O tipo e o escopo do prefixo inicial são removidos da entrada do classificador para reduzir o atalho de copiar o rótulo declarado.
 
-- [Conventional Commits](https://www.conventionalcommits.org/pt-br/v1.0.0/)
-- [TF-IDF no scikit-learn](https://scikit-learn.org/stable/modules/feature_extraction.html#text-feature-extraction)
-- [Regressão Logística no scikit-learn](https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html)
+Para exportar um histórico Git local que você tenha disponível:
+
+```bash
+.venv/bin/python commits.py coletar /caminho/do/repositorio --limite 200 --saida dados/commits_para_rotular.csv
+```
+
+Substitua o caminho por um repositório real. O coletor lê o histórico local sem commits de merge, com limite padrão de 100 e máximo de 1.000 mensagens. Não altera o repositório e recusa sobrescrever um arquivo de saída existente.
+
+A exportação deixa `categoria` vazia e acrescenta `tipo_declarado` como informação auxiliar. Ela não transforma automaticamente o prefixo em rótulo nem treina um modelo. Antes de usar o arquivo:
+
+1. Leia cada mensagem e atribua a categoria pela intenção descrita.
+2. Revise mensagens vazias, vagas, duplicadas e com várias intenções; agrupe exemplos relacionados. Mensagens vazias são preservadas na coleta para revisão, mas não são aceitas no treinamento.
+3. Para tipos fora das cinco classes, exclua-os justificadamente do recorte ou defina um tratamento metodológico antes de ampliar o modelo. Não force uma categoria apenas para completar a tabela.
+4. Salve uma cópia revisada, por exemplo `dados/commits_revisados.csv`, e use `--dados` para treiná-la ou avaliá-la.
+
+O histórico de um CommitX recém-criado tende a ser pequeno e pouco variado. Escolha um repositório com histórico suficiente para seu experimento, registre a origem e não apresente exemplos inventados como dados reais.
+
+## Organização e limites
+
+`commits.py` é a entrada do terminal. O pacote `commitx/` separa o código em quatro módulos: `dados.py` para leitura e coleta, `escrita.py` para regras, `modelo.py` para aprendizado e avaliação, e `relatorios.py` para exportação. Para executar as verificações automatizadas:
+
+```bash
+.venv/bin/python -m unittest discover -s testes -v
+```
+
+A avaliação é exploratória e não possui teste externo independente. Resultados sintéticos não demonstram desempenho em repositórios reais. Ajustes escolhidos após observar os erros precisam de avaliação posterior em dados independentes. As métricas de classificação não avaliam clareza.
+
+As regras de escrita são simples, em português, e não atribuem pontuação. Ausência de alertas não comprova clareza. O cabeçalho reconhecido não valida toda a especificação de Conventional Commits; uma mensagem curta pode ser suficiente, e o corpo é opcional quando o título explica a alteração.
+
+Veja [o guia de estudo e entrega](docs/GUIA_DO_TRABALHO.md). Referências: [Conventional Commits](https://www.conventionalcommits.org/pt-br/v1.0.0/), [TF-IDF](https://scikit-learn.org/stable/modules/feature_extraction.html#text-feature-extraction) e [Regressão Logística](https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression).
