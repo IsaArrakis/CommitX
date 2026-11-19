@@ -238,7 +238,7 @@ class TestRotulagemIA(unittest.TestCase):
             resultado = prever("Add copyright and license information", "",
                               "modelo-teste")
         self.assertEqual(resultado[:3], ("docs", "parcial", "baixa"))
-        self.assertIn("Revisar clareza", resultado[3])
+        self.assertIn("Revisão automática falhou", resultado[3])
 
 
     def test_auditoria_v3_titulo_presente_nao_indetermina_clareza(self):
