@@ -241,5 +241,54 @@ class TestRotulagemIA(unittest.TestCase):
         self.assertIn("Revisar clareza", resultado[3])
 
 
+    def test_auditoria_v3_titulo_presente_nao_indetermina_clareza(self):
+        from unittest.mock import patch
+        from commitx.rotulagem_ia import prever
+
+        with patch("commitx.rotulagem_ia._solicitar_ollama",
+                   side_effect=[
+                       ("indeterminado", "indeterminado", "baixa",
+                        "O título e o corpo estão vazios"),
+                       ("fix", "parcial", "media",
+                        "Menciona um erro de bool, mas sem mecanismo"),
+                   ]) as chamadas:
+            resultado = prever("Fix bool setting dump issue.", "", "modelo")
+        self.assertEqual(resultado[:2], ("fix", "parcial"))
+        self.assertEqual(chamadas.call_count, 2)
+        self.assertNotIn(
+            "indeterminado",
+            chamadas.call_args.args[0]["format"]["properties"]["clareza"]["enum"],
+        )
+
+    def test_titulo_vazio_pode_manter_indeterminado(self):
+        from unittest.mock import patch
+        from commitx.rotulagem_ia import prever, CLAREZAS
+        with patch("commitx.rotulagem_ia._solicitar_ollama",
+                   return_value=("indeterminado", "indeterminado", "baixa",
+                                 "Sem texto legível")) as chamadas:
+            resultado = prever("", "", "modelo")
+        self.assertEqual(resultado[1], "indeterminado")
+        self.assertEqual(chamadas.call_count, 1)
+        self.assertEqual(
+            chamadas.call_args.args[0]["format"]["properties"]["clareza"]["enum"],
+            list(CLAREZAS),
+        )
+
+    def test_filtrar_apenas_ids_auditados_sem_vazar_validacao(self):
+        from commitx.rotulagem_ia import classificar
+        filtro = self.raiz / "ids.csv"
+        with filtro.open("w", encoding="utf-8", newline="") as arq:
+            escritor = csv.writer(arq)
+            escritor.writerow(["id"])
+            escritor.writerows([["e"], ["b"], ["c"]])
+        resumo = classificar(
+            self.entrada, self.banco, self.humanos,
+            preditor=self.pred, ids_csv=filtro, limite=0,
+            imprimir=lambda *_: None,
+        )
+        self.assertEqual(resumo.get("sugeridos"), 1)
+        self.assertEqual(self.chamadas, ["test: criar testes"])
+
+
 if __name__ == "__main__":
     unittest.main()
