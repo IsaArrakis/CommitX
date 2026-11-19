@@ -31,8 +31,10 @@ class TestarColetaMassa(unittest.TestCase):
                      "message": "docs: criar guia", "lang": "python"},
                 ]
 
-                def carregar(nome, split, streaming):
+                def carregar(nome, config, split, streaming):
                     self.assertEqual(nome, "bigcode/commitpackft")
+                    self.assertEqual(config, "python")
+                    self.assertEqual(split, "train")
                     self.assertTrue(streaming)
                     return iter(linhas)
 
