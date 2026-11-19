@@ -205,6 +205,10 @@ def main(argv=None):
         "--sem-sugestoes", action="store_true",
         help="Desabilita sugestões; volta à rotulagem inteiramente manual."
     )
+    lote = sub.add_parser("lote", help="Revisar várias mensagens na mesma tela.")
+    lote.add_argument("--limite", type=int, default=20)
+    lote.add_argument("--tamanho", type=int, default=5)
+    lote.add_argument("--sem-sugestoes", action="store_true")
     sub.add_parser("status", help="Mostra quantos já foram rotulados.")
     exp = sub.add_parser("exportar", help="Gera CSV com rótulos humanos.")
     exp.add_argument("--saida", type=Path, required=True)
@@ -228,6 +232,21 @@ def main(argv=None):
                     print("\nSessão interrompida; rótulos anteriores preservados.")
                     n = 0
                 print(f"Novos registros salvos nesta sessão: {n}")
+            elif args.comando == "lote":
+                from .revisao_lote import revisar_em_lote, _eh_reservado
+                sugestor = None
+                if not args.sem_sugestoes:
+                    elegiveis = [r for r in amostra if not _eh_reservado(r)]
+                    if elegiveis:
+                        from .sugestoes import Sugestor
+                        sugestor = Sugestor(elegiveis, db)
+                n = revisar_em_lote(
+                    amostra, db, tamanho=args.tamanho,
+                    limite=args.limite, sugestor=sugestor
+                )
+                dados = status(amostra, db)
+                print(f"Confirmadas na sessão: {n}. "
+                      f"Na amostra: {dados['avaliados']}/{dados['total']}.")
             elif args.comando == "status":
                 dados = status(amostra, db)
                 for nome in ("total", "avaliados", "restantes"):
