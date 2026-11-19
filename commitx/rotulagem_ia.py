@@ -267,8 +267,9 @@ def prever(titulo, descricao, modelo):
         return primeira
 
     segunda_solicitacao = dict(corpo)
-    segunda_solicitacao["messages"] = corpo["messages"] + [
-        {"role": "system", "content": instrucao_de_revisao()},
+    segunda_solicitacao["messages"] = [
+        {"role": "system", "content": instrucoes() + "\n" + instrucao_de_revisao()},
+        corpo["messages"][1],
     ]
     try:
         segunda = _solicitar_ollama(segunda_solicitacao)
