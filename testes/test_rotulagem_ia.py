@@ -168,5 +168,76 @@ class TestRotulagemIA(unittest.TestCase):
         self.assertEqual(resultado[:3], ("fix", "claro", "alta"))
         self.assertEqual(requisicoes.call_count, 2)
 
+    def test_rubrica_nao_exige_corpo_e_contem_exemplos_auditados(self):
+        from commitx.rotulagem_ia import instrucoes
+        prompt = instrucoes()
+        self.assertIn("NÃO penalize automaticamente mensagens sem corpo", prompt)
+        self.assertIn("Add a __str__ for Tile", prompt)
+        self.assertIn("Cover this exception with a test", prompt)
+        self.assertIn("prefixo", prompt)
+
+    def test_detecta_justificativas_suspeitas_sem_corpo(self):
+        from commitx.rotulagem_ia import depende_apenas_da_ausencia_de_corpo
+        self.assertTrue(depende_apenas_da_ausencia_de_corpo(
+            ("fix", "parcial", "baixa",
+             "O corpo está vazio, o que dificulta avaliar a mudança."), ""
+        ))
+        self.assertFalse(depende_apenas_da_ausencia_de_corpo(
+            ("feat", "parcial", "baixa", "Título não identifica o alvo"), ""
+        ))
+        self.assertFalse(depende_apenas_da_ausencia_de_corpo(
+            ("feat", "claro", "alta", "Corpo vazio"), ""
+        ))
+        self.assertFalse(depende_apenas_da_ausencia_de_corpo(
+            ("feat", "parcial", "baixa", "Corpo vazio"), "Texto existente"
+        ))
+
+    def test_segunda_avaliacao_quando_justificativa_cita_corpo_ausente(self):
+        from unittest.mock import patch
+        from commitx.rotulagem_ia import prever
+
+        previsoes = [
+            ("feat", "parcial", "baixa", "O corpo está vazio"),
+            ("feat", "claro", "media", "Título identifica ação e alvo"),
+        ]
+        with patch("commitx.rotulagem_ia._solicitar_ollama",
+                   side_effect=previsoes) as solicitacoes:
+            resultado = prever("Add a __str__ for Tile", "", "modelo-teste")
+        self.assertEqual(resultado[:2], ("feat", "claro"))
+        self.assertEqual(solicitacoes.call_count, 2)
+        self.assertIn("SEGUNDA AVALIAÇÃO", solicitacoes.call_args[0][
+            "messages"][-1]["content"])
+
+    def test_segunda_avaliacao_nao_promove_automaticamente(self):
+        from unittest.mock import patch
+        from commitx.rotulagem_ia import prever
+
+        previsoes = [
+            ("test", "parcial", "baixa", "Corpo vazio"),
+            ("test", "vago", "media", "A exceção não está identificada"),
+        ]
+        with patch("commitx.rotulagem_ia._solicitar_ollama",
+                   side_effect=previsoes) as solicitacoes:
+            resultado = prever("Cover this exception with a test", "",
+                              "modelo-teste")
+        self.assertEqual(resultado[:2], ("test", "vago"))
+        self.assertEqual(solicitacoes.call_count, 2)
+
+    def test_erro_na_segunda_avaliacao_preserva_rotulo_e_alerta(self):
+        from unittest.mock import patch
+        from commitx.rotulagem_ia import prever
+
+        respostas = [
+            ("docs", "parcial", "media", "Descrição vazia"),
+            RuntimeError("Falha do Ollama"),
+        ]
+        with patch("commitx.rotulagem_ia._solicitar_ollama",
+                   side_effect=respostas):
+            resultado = prever("Add copyright and license information", "",
+                              "modelo-teste")
+        self.assertEqual(resultado[:3], ("docs", "parcial", "baixa"))
+        self.assertIn("Revisar clareza", resultado[3])
+
+
 if __name__ == "__main__":
     unittest.main()
