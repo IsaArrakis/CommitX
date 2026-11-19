@@ -38,16 +38,18 @@ class TestRotulagem(unittest.TestCase):
 
     def test_nao_rotular_automaticamente(self):
         self.assertEqual(status(self.amostra, self.db)["avaliados"], 0)
+        iterador = iter(["1", "3"])
         self.assertEqual(rotular(self.amostra, self.db,
-                                entrada=iter(["1", "3"]).__next__,
+                                entrada=lambda _: next(iterador),
                                 saida=lambda *_: None, limite=1), 1)
         self.assertEqual(status(self.amostra, self.db)["avaliados"], 1)
         self.assertEqual(status(self.amostra, self.db)["clareza"]["vago"], 1)
 
     def test_retomada_sem_sobrescrever(self):
         registrar(self.db, "1", "fix", "vago")
+        iterador = iter(["3", "1"])
         self.assertEqual(rotular(self.amostra, self.db,
-                                entrada=iter(["3", "1"]).__next__,
+                                entrada=lambda _: next(iterador),
                                 saida=lambda *_: None, limite=1), 1)
         self.assertEqual(status(self.amostra, self.db)["avaliados"], 2)
         self.assertEqual(status(self.amostra, self.db)["categorias"]["fix"], 1)
