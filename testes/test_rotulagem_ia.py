@@ -81,11 +81,51 @@ class TestRotulagemIA(unittest.TestCase):
                     imprimir=lambda *_: None)
         self.assertEqual(status(self.banco)["status"]["prata"], 1)
 
-    def test_rejeita_rotulos_invalidos(self):
-        with self.assertRaises(ValueError):
-            validar_resposta({"categoria":"inventado", "clareza":"vago", "confianca":"alta"})
-        with self.assertRaises(ValueError):
-            validar_resposta({"categoria":"fix", "clareza":"ótimo", "confianca":"alta"})
+    def test_normaliza_variacoes_e_rejeita_desconhecidos(self):
+        self.assertEqual(
+            validar_resposta({
+                "categoria": "Bugfix", "clareza": "Clear",
+                "confianca": "High", "justificativa": "correção"
+            }),
+            ("fix", "claro", "alta", "correção"),
+        )
+        self.assertEqual(
+            validar_resposta({
+                "categoria": "chore", "clareza": "partial",
+                "confianca": "low", "justificativa": ""
+            })[:3],
+            ("fora_escopo", "parcial", "baixa"),
+        )
+        with self.assertRaisesRegex(ValueError, "categoria inválido"):
+            validar_resposta({"categoria": "inventado", "clareza": "vago"})
+        with self.assertRaisesRegex(ValueError, "clareza inválido"):
+            validar_resposta({"categoria": "fix", "clareza": "ótimo"})
+
+    def test_retentativa_json_ollama_sem_rede(self):
+        from unittest.mock import patch
+        import io
+        import json
+        from commitx.rotulagem_ia import prever
+
+        class Resposta:
+            def __init__(self, conteudo):
+                self.raw = io.BytesIO(json.dumps({
+                    "message": {"content": json.dumps(conteudo)}
+                }).encode("utf-8"))
+            def __enter__(self):
+                return self.raw
+            def __exit__(self, *args):
+                self.raw.close()
+
+        respostas = [
+            Resposta({"categoria": "nao_existe", "clareza": "clear"}),
+            Resposta({"categoria": "bugfix", "clareza": "clear",
+                     "confianca": "high", "justificativa": "ok"}),
+        ]
+        with patch("commitx.rotulagem_ia.urlopen", side_effect=respostas) as requisicoes:
+            resultado = prever("fix: resolver erro", "", "modelo-teste")
+        self.assertEqual(resultado[:3], ("fix", "claro", "alta"))
+        self.assertEqual(requisicoes.call_count, 2)
 
 if __name__ == "__main__":
     unittest.main()
