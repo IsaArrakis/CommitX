@@ -101,6 +101,47 @@ class TestRotulagemIA(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "clareza inválido"):
             validar_resposta({"categoria": "fix", "clareza": "ótimo"})
 
+    def test_outro_e_indeterminado_nao_fora_escopo(self):
+        for nome in ("outro", "other", "outros"):
+            cat, cla, conf, motivo = validar_resposta({
+                "categoria": nome, "clareza": "claro",
+                "confianca": "alta", "justificativa": "sem tipo conhecido"
+            })
+            self.assertEqual((cat, cla, conf), ("indeterminado", "claro", "baixa"))
+            self.assertIn("convertida em indeterminado", motivo)
+
+    def test_ollama_recebe_esquema_com_categorias_permitidas(self):
+        from unittest.mock import patch
+        import io
+        import json
+        from commitx.rotulagem_ia import prever, CATEGORIAS, CLAREZAS
+
+        pedidos = []
+        class Resposta:
+            def __enter__(self):
+                return io.BytesIO(json.dumps({
+                    "message": {"content": json.dumps({
+                        "categoria": "fix", "clareza": "claro",
+                        "confianca": "alta", "justificativa": "bug corrigido"
+                    })}
+                }).encode("utf-8"))
+            def __exit__(self, *args):
+                return False
+        def simular(pedido, timeout):
+            pedidos.append(json.loads(pedido.data))
+            return Resposta()
+
+        with patch("commitx.rotulagem_ia.urlopen", side_effect=simular):
+            prever("fix: corrigir", "", "modelo-teste")
+        self.assertEqual(
+            pedidos[0]["format"]["properties"]["categoria"]["enum"],
+            list(CATEGORIAS),
+        )
+        self.assertEqual(
+            pedidos[0]["format"]["properties"]["clareza"]["enum"],
+            list(CLAREZAS),
+        )
+
     def test_retentativa_json_ollama_sem_rede(self):
         from unittest.mock import patch
         import io
