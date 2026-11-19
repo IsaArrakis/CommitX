@@ -50,17 +50,58 @@ def humanos_revisados(caminho):
         con.close()
 
 
+def _normalizar(valor, permitidos, aliases, campo):
+    """Aceita apenas sinônimos inequívocos; desconhecidos exigem nova tentativa."""
+    if not isinstance(valor, str):
+        raise ValueError(f"{campo} ausente ou de tipo inválido")
+    chave = valor.strip().lower().replace("-", "_").replace(" ", "_")
+    chave = chave.replace("é", "e").replace("á", "a").replace("í", "i")
+    resposta = aliases.get(chave, chave)
+    if resposta not in permitidos:
+        raise ValueError(f"{campo} inválido: {valor[:65]!r}")
+    return resposta
+
+
+ALIAS_CATEGORIA = {
+    "bugfix": "fix", "bug_fix": "fix", "correcao": "fix",
+    "feature": "feat", "funcionalidade": "feat",
+    "documentation": "docs", "documentacao": "docs",
+    "refactoring": "refactor", "refatoracao": "refactor",
+    "tests": "test", "testing": "test", "teste": "test",
+    "chore": "fora_escopo", "build": "fora_escopo",
+    "ci": "fora_escopo", "perf": "fora_escopo",
+    "performance": "fora_escopo", "deps": "fora_escopo",
+    "other": "fora_escopo", "out_of_scope": "fora_escopo",
+    "unknown": "indeterminado", "uncertain": "indeterminado",
+}
+ALIAS_CLAREZA = {
+    "vague": "vago", "unclear": "vago", "poor": "vago",
+    "partial": "parcial", "partially_clear": "parcial",
+    "clear": "claro", "good": "claro",
+    "unknown": "indeterminado", "uncertain": "indeterminado",
+}
+ALIAS_CONFIANCA = {
+    "high": "alta", "medium": "media", "moderate": "media",
+    "low": "baixa",
+}
+
+
 def validar_resposta(dados):
     if not isinstance(dados, dict):
         raise ValueError("A resposta da IA não é um objeto")
-    categoria = dados.get("categoria")
-    clareza = dados.get("clareza")
-    confianca = dados.get("confianca", "baixa")
+    categoria = _normalizar(
+        dados.get("categoria"), CATEGORIAS, ALIAS_CATEGORIA, "categoria"
+    )
+    clareza = _normalizar(
+        dados.get("clareza"), CLAREZAS, ALIAS_CLAREZA, "clareza"
+    )
+    confianca = _normalizar(
+        dados.get("confianca", "baixa"),
+        CONFIANCAS, ALIAS_CONFIANCA, "confianca"
+    )
     motivo = dados.get("justificativa", "")
-    if categoria not in CATEGORIAS or clareza not in CLAREZAS:
-        raise ValueError("Rótulo inválido na resposta da IA")
-    if confianca not in CONFIANCAS or not isinstance(motivo, str):
-        raise ValueError("Confiança ou justificativa inválida")
+    if not isinstance(motivo, str):
+        raise ValueError("Justificativa inválida")
     return (categoria, clareza, confianca, motivo[:400])
 
 
@@ -113,12 +154,21 @@ def prever(titulo, descricao, modelo):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    try:
-        with urlopen(pedido, timeout=240) as resposta:
-            saida = json.load(resposta)["message"]["content"]
-        return validar_resposta(json.loads(saida))
-    except (HTTPError, URLError, TimeoutError, OSError, ValueError, KeyError, TypeError) as erro:
-        raise RuntimeError("Erro ou JSON inválido no Ollama: " + str(erro)) from erro
+    # Reenvia o mesmo prompt no máximo duas vezes quando a saída não segue o contrato.
+    ultimo_erro = None
+    for tentativa in range(3):
+        try:
+            with urlopen(pedido, timeout=240) as resposta:
+                saida = json.load(resposta)["message"]["content"]
+            return validar_resposta(json.loads(saida))
+        except (ValueError, KeyError, TypeError) as erro:
+            ultimo_erro = erro
+            continue
+        except (HTTPError, URLError, TimeoutError, OSError) as erro:
+            raise RuntimeError("Falha de comunicação com Ollama: " + str(erro)) from erro
+    raise RuntimeError(
+        f"Resposta inválida após 3 tentativas: {ultimo_erro}"
+    ) from ultimo_erro
 
 
 def salvar(con, linha, modelo, rotulos=None, erro=""):
