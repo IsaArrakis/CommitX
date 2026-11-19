@@ -21,7 +21,7 @@ from sklearn.metrics import (
 
 from .treino_real import (
     BANCO, ENTRADA, CATEGORIAS_VALIDAS, CLAREZAS_VALIDAS,
-    carregar_revisados, construir_modelo, verificar,
+    carregar_revisados, construir_modelo, verificar, repositorios_da_linha,
 )
 
 DESTINO = Path("resultados/avaliacao-humana-01")
@@ -43,7 +43,10 @@ def validar_particoes(registros):
     if any(not r["repositorio"].strip() for r in registros):
         raise ValueError("Há commit revisado sem repositório; não é seguro avaliar")
     conjuntos = {
-        p: {r["repositorio"] for r in registros if r["particao"] == p}
+        p: set().union(*(
+            repositorios_da_linha(r["repositorio"])
+            for r in registros if r["particao"] == p
+        ))
         for p in PARTICOES
     }
     return sorted(
