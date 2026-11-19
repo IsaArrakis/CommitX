@@ -26,7 +26,7 @@ Piloto:
 Aumentar depois:
 
 ```bash
-.venv/bin/python -m commitx.coleta_massa hf --limite 70000 --splits python javascript java markdown
+.venv/bin/python -m commitx.coleta_massa hf --limite 70000 --splits python javascript java
 ```
 
 O streaming evita baixar toda a base para a memória. Os registros armazenados preservam a mensagem, SHA, repositório, linguagem, licença e fonte, sem armazenar o diff. Cada par repositório/SHA é armazenado uma vez, inclusive quando o dataset possui várias linhas do mesmo commit. A meta pode não ser atingida se faltarem exemplos únicos nos splits selecionados.
