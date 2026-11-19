@@ -135,8 +135,8 @@ def interpretar_respostas(texto, pagina, sugestoes):
 def revisar_em_lote(amostra, db, *, tamanho=5, limite=20,
                    sugestor=None, entrada=input, imprimir=print):
     """Cada seleção humana é salva individualmente e sessões podem ser retomadas."""
-    if not 1 <= tamanho <= 20:
-        raise ValueError("--tamanho deve estar entre 1 e 20")
+    if not 1 <= tamanho <= 30:
+        raise ValueError("--tamanho deve estar entre 1 e 30")
     if limite < 1:
         raise ValueError("--limite precisa ser positivo")
 

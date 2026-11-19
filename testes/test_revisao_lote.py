@@ -82,6 +82,52 @@ class TestRevisaoLote(unittest.TestCase):
         self.assertEqual(n, 1)
         self.assertEqual(status(self.amostra, self.db)["avaliados"], 1)
 
+    def test_pagina_unica_com_30_e_resposta_unica(self):
+        amostra = [
+            {"id": str(i), "titulo": f"fix: corrigir caso {i}",
+             "descricao": "", "origem": "git", "grupo": f"r{i}",
+             "particao": "treino"}
+            for i in range(1, 31)
+        ]
+        resposta = ";".join(f"{i}=1,3" for i in range(1, 31))
+        entradas = iter([resposta])
+        exibicoes = []
+        total = revisar_em_lote(
+            amostra, self.db, tamanho=30, limite=30, sugestor=None,
+            entrada=lambda _: next(entradas), imprimir=exibicoes.append,
+        )
+        self.assertEqual(total, 30)
+        self.assertEqual(status(amostra, self.db)["avaliados"], 30)
+        self.assertTrue(any("30 mensagens / 30" in linha for linha in exibicoes))
+        self.assertTrue(any("[30]" in linha for linha in exibicoes))
+
+    def test_pagina_30_retomada_preserva_rótulos(self):
+        amostra = [
+            {"id": str(i), "titulo": f"feat: atividade {i}",
+             "descricao": "", "origem": "git", "grupo": f"r{i}",
+             "particao": "treino"}
+            for i in range(1, 31)
+        ]
+        registrar(self.db, "1", "fix", "parcial")
+        entradas = iter(["1=2,3", "q"])
+        total = revisar_em_lote(
+            amostra, self.db, tamanho=30, limite=30, sugestor=None,
+            entrada=lambda _: next(entradas), imprimir=lambda *_: None,
+        )
+        self.assertEqual(total, 1)
+        self.assertEqual(status(amostra, self.db)["avaliados"], 2)
+        atual = self.db.execute(
+            "SELECT categoria,clareza FROM avaliacoes WHERE id='1'"
+        ).fetchone()
+        self.assertEqual(atual, ("fix", "parcial"))
+
+    def test_rejeita_tamanho_acima_de_30(self):
+        with self.assertRaisesRegex(ValueError, "entre 1 e 30"):
+            revisar_em_lote(
+                self.amostra, self.db, tamanho=31, limite=31,
+                entrada=lambda _: "q", imprimir=lambda *_: None,
+            )
+
     def test_interrupcao_retorna_sem_perder(self):
         n = self._revisar(["1=1,3", "q"])
         self.assertEqual(n, 1)

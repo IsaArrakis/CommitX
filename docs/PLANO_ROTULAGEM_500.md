@@ -71,3 +71,25 @@ Na última tela do usuário havia **107 rótulos** registrados (55 exemplos de c
 ## Regras de parada
 
 Revisar apenas quando os rótulos humanos estiverem aumentando e a revisão tiver utilidade. Parar nos checkpoints caso a distribuição por classe esteja distorcida, a procedência dos rótulos não seja confiável ou o classificador não apresente ganho consistente em validação cruzada no treino. Não gastar horas em lotes indefinidos.
+
+## Revisão de 30 mensagens na mesma tela
+
+A opção `--tamanho 30` agora permite que a sessão apresente todos os 30 commits de uma amostra de uma vez. `--limite 30` controla quantas confirmações são permitidas nesta sessão; não é um limite de página. Digite `dN` para detalhes da mensagem N e `q` para interromper sem excluir registros já confirmados. Com 30 mensagens, pode ser necessário rolar a tela do terminal.
+
+**A amostra `fila-inteligente-03.csv` já foi revisada:** para mais 30 novos commits, use caminhos inéditos e exclua amostras anteriores:
+
+```bash
+.venv/bin/python -m commitx.fila_inteligente \\
+  --quantidade 30 \\
+  --saida resultados/amostras/fila-inteligente-04.csv \\
+  --resumo resultados/amostras/fila-inteligente-04.json \\
+  --excluir resultados/amostras/fila-inteligente-01.csv \\
+  --excluir resultados/amostras/fila-inteligente-02.csv \\
+  --excluir resultados/amostras/fila-inteligente-03.csv
+
+.venv/bin/python -m commitx.rotulagem \\
+  --amostra resultados/amostras/fila-inteligente-04.csv \\
+  lote --tamanho 30 --limite 30 --sem-sugestoes
+```
+
+Registre apenas classificações conferidas; exemplos assistidos por IA não são validação cega. Não force clareza `vago` para atingir o mínimo.
