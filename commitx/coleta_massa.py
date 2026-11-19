@@ -72,7 +72,7 @@ def importar_hf(db, *, limite, splits, lote=500, carregador=None):
     novos = 0
     vistos = 0
     for split in splits:
-        for linha in carregador("bigcode/commitpackft", split=split, streaming=True):
+        for linha in carregador("bigcode/commitpackft", split, split="train", streaming=True):
             vistos += 1
             if registrar(
                 db,
@@ -174,7 +174,7 @@ def argumentos():
     hf = sub.add_parser("hf", help="Lê CommitPackFT via streaming.")
     hf.add_argument("--limite", type=int, default=70000)
     hf.add_argument(
-        "--splits", nargs="+", default=["python", "javascript", "java", "markdown"]
+        "--splits", nargs="+", default=["python", "javascript", "java"]
     )
     git = sub.add_parser("git", help="Importa vários Git locais.")
     git.add_argument("--repos", type=Path, required=True)
