@@ -5,9 +5,13 @@ Uso: python -m commitx.coleta_massa --help
 import argparse
 import csv
 import hashlib
+import json
 from pathlib import Path
 import sqlite3
 import subprocess
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 CAMPOS = ["id", "titulo", "descricao", "categoria", "grupo", "origem", "tipo_declarado"]
 ESQUEMA = """
@@ -59,20 +63,49 @@ def registrar(db, *, repositorio, sha, mensagem, fonte, assunto="", linguagem=""
     )
     return cursor.rowcount == 1
 
+def ler_hf_jsonl(linguagem, *, abridor=None):
+    """Lê o JSONL oficial sem executar o script legado commitpackft.py."""
+    if abridor is None:
+        abridor = urlopen
+    url = (
+        "https://huggingface.co/datasets/bigcode/commitpackft/resolve/"
+        "main/data/{}/data.jsonl"
+    ).format(quote(linguagem, safe=""))
+    requisicao = Request(url, headers={"User-Agent": "CommitX/1.0"})
+    try:
+        with abridor(requisicao, timeout=90) as resposta:
+            for numero, linha in enumerate(resposta, start=1):
+                if not linha.strip():
+                    continue
+                try:
+                    registro = json.loads(linha)
+                except (ValueError, UnicodeDecodeError) as erro:
+                    raise ValueError(
+                        f"JSONL inválido em '{linguagem}', linha {numero}"
+                    ) from erro
+                if not isinstance(registro, dict):
+                    raise ValueError(
+                        f"Registro inesperado em '{linguagem}', linha {numero}"
+                    )
+                yield registro
+    except HTTPError as erro:
+        raise RuntimeError(
+            f"Erro HTTP {erro.code} ao acessar dados de '{linguagem}': {url}"
+        ) from erro
+    except URLError as erro:
+        raise RuntimeError(
+            f"Falha de conexão ao acessar dados de '{linguagem}': {erro.reason}"
+        ) from erro
+
+
 def importar_hf(db, *, limite, splits, lote=500, carregador=None):
-    """Itera splits do CommitPackFT e grava somente novos commits."""
+    """Itera arquivos JSONL de linguagens do CommitPackFT e grava novos commits."""
     if carregador is None:
-        try:
-            from datasets import load_dataset
-        except ImportError as erro:
-            raise RuntimeError(
-                "Dependência opcional ausente: .venv/bin/python -m pip install datasets"
-            ) from erro
-        carregador = load_dataset
+        carregador = ler_hf_jsonl
     novos = 0
     vistos = 0
     for split in splits:
-        for linha in carregador("bigcode/commitpackft", split, split="train", streaming=True):
+        for linha in carregador(split):
             vistos += 1
             if registrar(
                 db,
