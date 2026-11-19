@@ -206,7 +206,7 @@ class TestRotulagemIA(unittest.TestCase):
         self.assertEqual(resultado[:2], ("feat", "claro"))
         self.assertEqual(solicitacoes.call_count, 2)
         self.assertIn("SEGUNDA AVALIAÇÃO", solicitacoes.call_args[0][
-            "messages"][-1]["content"])
+            "messages"][0]["content"])
 
     def test_segunda_avaliacao_nao_promove_automaticamente(self):
         from unittest.mock import patch
