@@ -83,3 +83,82 @@ git pull --ff-only
 O parâmetro `--retentar-erros` recupera os commits registrados anteriormente com falha; commits com status `prata` não são processados novamente. O limite 100 corresponde a **até 100 tentativas na nova execução**, não ao total acumulado no banco.
 
 Se houver erros repetidos de comunicação ou indisponibilidade, examine `ollama list` e `sudo systemctl status ollama` antes de tentar novamente.
+
+
+## Piloto de qualidade v2 — auditoria dos 42 commits
+
+A auditoria `docs/auditoria/commitx_relatorio_auditoria.md` mostrou divergências entre
+um segundo parecer assistido por IA e as previsões do Ollama, especialmente na clareza.
+A amostra foi direcionada e NÃO é um benchmark humano independente.
+
+A rubrica v2:
+- Não considera a ausência de descrição motivo suficiente para `vago` ou `parcial`.
+- Compara ação, alvo e especificidade da mensagem, inclusive em títulos isolados.
+- Diferencia documentação, correção, funcionalidade, refatoração e teste por intenção;
+  o prefixo é apenas pista.
+- Quando uma justificativa de baixa clareza cita a ausência de corpo, solicita
+  uma segunda avaliação do Ollama sem aplicar promoção automática para `claro`.
+- Preserva rótulos humanos e todas as previsões v1 no banco antigo.
+
+**Mudança de versão:** o banco padrão v2 é
+`resultados/rotulagem-ia/sugestoes_v2.sqlite3`, diferente do v1
+`resultados/rotulagem-ia/sugestoes.sqlite3`.
+Não mova nem renomeie o arquivo SQLite antigo.
+
+Para experimentar a versão nova sem alterar a anterior:
+
+```bash
+cd ~/CommitX-coleta
+git fetch origin
+git switch feat/qualidade-rotulagem-ia-v2
+.venv/bin/python -m unittest discover -s testes -v
+.venv/bin/python -m commitx.rotulagem_ia classificar --limite 100
+.venv/bin/python -m commitx.rotulagem_ia status
+.venv/bin/python -m commitx.rotulagem_ia exportar --saida resultados/rotulagem-ia/piloto_v2_100.csv
+```
+
+**Revisão e métricas:** compare distribuições v1/v2 e auditórias de casos 
+selecionados sem tratar pareceres gerados por IA como verdade. Use rótulos humanos
+independentes para estimar erro e macro-F1; o modelo não foi avaliado em máquina
+com Ollama durante a implementação. Comparações pareadas dependem de os mesmos
+commits serem processados; duas execuções `--limite 100` não garantem isso,
+pois a v1 ignora itens já processados. O status `prata` não significa acerto.
+
+
+## Piloto v3 dirigido pelos 55 casos auditados
+
+O arquivo `auditoria_v2.csv` de 55 linhas revelou 53 previsões de clareza
+`indeterminado`, 34 categorias `indeterminado` e **nenhum título vazio**.
+Desses 55, 50 não possuem descrição, porém isso não impede a avaliação de
+clareza com base em um título legível.
+
+A versão v3 faz uma escolha de `vago`, `parcial` ou `claro` quando existe
+título legível; a categoria ainda pode ser `indeterminado` quando realmente não
+é possível inferir o tipo. A justificativa contraditória ou categoria
+indeterminada pode solicitar segunda opinião automática do mesmo modelo.
+Nenhuma resposta é promovida a correta por regra fixa.
+
+O banco de saída agora é **`resultados/rotulagem-ia/sugestoes_v3.sqlite3`**;
+os bancos v1 e v2 e os rótulos humanos permanecem intactos.
+
+Para testar precisamente os mesmos IDs do arquivo auditado (sem repetir
+outros commits e ainda respeitando o filtro da partição de treino):
+
+```bash
+cd ~/CommitX-coleta
+git pull --ff-only
+.venv/bin/python -m unittest discover -s testes -v
+.venv/bin/python -m commitx.rotulagem_ia classificar --limite 100 \
+  --ids-csv resultados/rotulagem-ia/auditoria_v2.csv
+.venv/bin/python -m commitx.rotulagem_ia status
+```
+
+Para testar a funcionalidade de filtragem e os 55 IDs não é necessário
+rebaixar os arquivos da auditoria nem criar rótulos humanos artificiais.
+A linha da amostra deve estar na partição `treino` e não ter sido rotulada
+manualmente para ser processada.
+
+**Limitação:** uma segunda opinião do próprio Ollama não é validação
+independente, e eliminar `indeterminado` da clareza quando há texto legível
+não garante que a classe escolhida esteja correta. Revise uma amostra
+humana separada antes de utilizar previsões como dados de treino.
