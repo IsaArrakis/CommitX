@@ -123,3 +123,42 @@ independentes para estimar erro e macro-F1; o modelo não foi avaliado em máqui
 com Ollama durante a implementação. Comparações pareadas dependem de os mesmos
 commits serem processados; duas execuções `--limite 100` não garantem isso,
 pois a v1 ignora itens já processados. O status `prata` não significa acerto.
+
+
+## Piloto v3 dirigido pelos 55 casos auditados
+
+O arquivo `auditoria_v2.csv` de 55 linhas revelou 53 previsões de clareza
+`indeterminado`, 34 categorias `indeterminado` e **nenhum título vazio**.
+Desses 55, 50 não possuem descrição, porém isso não impede a avaliação de
+clareza com base em um título legível.
+
+A versão v3 faz uma escolha de `vago`, `parcial` ou `claro` quando existe
+título legível; a categoria ainda pode ser `indeterminado` quando realmente não
+é possível inferir o tipo. A justificativa contraditória ou categoria
+indeterminada pode solicitar segunda opinião automática do mesmo modelo.
+Nenhuma resposta é promovida a correta por regra fixa.
+
+O banco de saída agora é **`resultados/rotulagem-ia/sugestoes_v3.sqlite3`**;
+os bancos v1 e v2 e os rótulos humanos permanecem intactos.
+
+Para testar precisamente os mesmos IDs do arquivo auditado (sem repetir
+outros commits e ainda respeitando o filtro da partição de treino):
+
+```bash
+cd ~/CommitX-coleta
+git pull --ff-only
+.venv/bin/python -m unittest discover -s testes -v
+.venv/bin/python -m commitx.rotulagem_ia classificar --limite 100 \
+  --ids-csv resultados/rotulagem-ia/auditoria_v2.csv
+.venv/bin/python -m commitx.rotulagem_ia status
+```
+
+Para testar a funcionalidade de filtragem e os 55 IDs não é necessário
+rebaixar os arquivos da auditoria nem criar rótulos humanos artificiais.
+A linha da amostra deve estar na partição `treino` e não ter sido rotulada
+manualmente para ser processada.
+
+**Limitação:** uma segunda opinião do próprio Ollama não é validação
+independente, e eliminar `indeterminado` da clareza quando há texto legível
+não garante que a classe escolhida esteja correta. Revise uma amostra
+humana separada antes de utilizar previsões como dados de treino.
