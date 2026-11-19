@@ -85,6 +85,11 @@ def distribuição(linhas, classe):
     }[classe]
 
 
+def repositorios_da_linha(valor):
+    """Normaliza origens Git e listas separadas por vírgulas em IDs individuais."""
+    return {origem.strip() for origem in str(valor or "").split(",") if origem.strip()}
+
+
 def verificar(revisados, coluna, classes):
     treino = [
         r for r in revisados
@@ -111,7 +116,7 @@ def verificar(revisados, coluna, classes):
     # Nenhum repositório pode atravessar treino / validação / teste.
     por_particao = {}
     for nome, linhas in (("treino", treino), ("validacao", validacao), ("teste", teste)):
-        por_particao[nome] = {r["repositorio"] for r in linhas}
+        por_particao[nome] = set().union(*(repositorios_da_linha(r["repositorio"]) for r in linhas)) if linhas else set()
     sobreposicoes = sorted(
         (por_particao["treino"] & por_particao["validacao"])
         | (por_particao["treino"] & por_particao["teste"])
