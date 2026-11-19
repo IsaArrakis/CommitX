@@ -9,10 +9,9 @@ Dentro da pasta CommitX:
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m pip install 'datasets>=3,<5'
 ```
 
-A biblioteca `datasets` só é necessária para a importação do Hugging Face.
+O coletor lê os arquivos JSONL diretamente via HTTPS e não precisa instalar `datasets`. Ele não executa o script legado `commitpackft.py`.
 
 ## Importar CommitPackFT (meta inicial: 70 mil)
 
@@ -29,7 +28,7 @@ Aumentar depois:
 .venv/bin/python -m commitx.coleta_massa hf --limite 70000 --splits python javascript java
 ```
 
-O streaming evita baixar toda a base para a memória. Os registros armazenados preservam a mensagem, SHA, repositório, linguagem, licença e fonte, sem armazenar o diff. Cada par repositório/SHA é armazenado uma vez, inclusive quando o dataset possui várias linhas do mesmo commit. A meta pode não ser atingida se faltarem exemplos únicos nos splits selecionados.
+A leitura por streaming consome uma linha por vez do arquivo JSONL remoto; o servidor pode transferir o arquivo inteiro ao longo da execução, mas os registros não são carregados de uma só vez na memória. Os registros armazenados preservam a mensagem, SHA, repositório, linguagem, licença e fonte, sem armazenar o diff. Cada par repositório/SHA é armazenado uma vez, inclusive quando o dataset possui várias linhas do mesmo commit. A meta pode não ser atingida se faltarem exemplos únicos nos splits selecionados.
 
 ## Importar Git local (meta inicial: 30 mil)
 
