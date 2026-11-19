@@ -38,7 +38,8 @@ class TestRotulagem(unittest.TestCase):
 
     def test_nao_rotular_automaticamente(self):
         self.assertEqual(status(self.amostra, self.db)["avaliados"], 0)
-        iterador = iter(["1", "3"])
+        # Categoria 1 = fix; clareza 1 = vago.
+        iterador = iter(["1", "1"])
         self.assertEqual(rotular(self.amostra, self.db,
                                 entrada=lambda _: next(iterador),
                                 saida=lambda *_: None, limite=1), 1)
