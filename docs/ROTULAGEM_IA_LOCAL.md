@@ -162,3 +162,29 @@ manualmente para ser processada.
 independente, e eliminar `indeterminado` da clareza quando há texto legível
 não garante que a classe escolhida esteja correta. Revise uma amostra
 humana separada antes de utilizar previsões como dados de treino.
+
+
+## Experimento v4 — modelo orientado a instruções, sem segunda passagem
+
+A análise pareada dos mesmos 55 commits v2/v3 mostrou que, embora a v3 tenha removido `indeterminado` da clareza, os 55 casos viraram `vago`. Em 41 justificativas havia aviso de revisão ainda incerta, e dezenas continuavam citando ausência do corpo como se isso invalidasse um título legível.
+
+Esta versão testa outra hipótese: o Qwen2.5-Coder 3B pode estar seguindo a rubrica de clareza de forma insatisfatória; a v4 troca para o modelo de instruções `qwen2.5:3b-instruct`, reduz o prompt e realiza **apenas uma chamada** por commit (não trata uma segunda resposta do mesmo modelo como validação). O modelo não foi avaliado aqui: é uma hipótese a testar, não uma melhoria demonstrada.
+
+O banco padrão da v4 é novo: `resultados/rotulagem-ia/sugestoes_v4.sqlite3`. Não sobrescreve as versões anteriores nem os rótulos humanos.
+
+No terminal Linux:
+
+```bash
+cd ~/CommitX-coleta
+git fetch origin
+git switch feat/experimento-classificador-v4
+ollama pull qwen2.5:3b-instruct
+.venv/bin/python -m unittest discover -s testes -v
+.venv/bin/python -m commitx.rotulagem_ia classificar --limite 10 \\
+  --ids-csv resultados/rotulagem-ia/auditoria_v2.csv
+.venv/bin/python -m commitx.rotulagem_ia status
+```
+
+Se a amostra de 10 tiver distribuição plausível, complete os outros IDs com o mesmo filtro e limite 100, e exporte com o comando `exportar`. Uma contagem variada de rótulos **não comprova acurácia**. É indispensável uma revisão humana independente de uma amostra antes de confiar nos pseudo-rótulos em treinamento. Os 55 casos foram escolhidos por incerteza da v2, logo não são representativos da base.
+
+O piloto imprime um alerta se, depois de 20 tentativas, apenas uma classe de clareza tiver aparecido. O alerta é diagnóstico, não bloqueia automaticamente o processamento.
