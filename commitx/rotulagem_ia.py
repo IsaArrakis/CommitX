@@ -71,7 +71,9 @@ ALIAS_CATEGORIA = {
     "chore": "fora_escopo", "build": "fora_escopo",
     "ci": "fora_escopo", "perf": "fora_escopo",
     "performance": "fora_escopo", "deps": "fora_escopo",
-    "other": "fora_escopo", "out_of_scope": "fora_escopo",
+    "other": "indeterminado", "outro": "indeterminado",
+    "outros": "indeterminado", "outra": "indeterminado",
+    "out_of_scope": "fora_escopo",
     "unknown": "indeterminado", "uncertain": "indeterminado",
 }
 ALIAS_CLAREZA = {
@@ -102,6 +104,15 @@ def validar_resposta(dados):
     motivo = dados.get("justificativa", "")
     if not isinstance(motivo, str):
         raise ValueError("Justificativa inválida")
+    if categoria == "indeterminado":
+        # A resposta genérica "outro" não comprova que a mudança está fora
+        # do escopo: marca dúvida e força revisão em vez de inventar classe.
+        confianca = "baixa"
+        if str(dados.get("categoria", "")).strip().lower() in (
+            "outro", "outros", "outra", "other"
+        ):
+            motivo = ("Categoria genérica 'outro' convertida em indeterminado. "
+                      + motivo)
     return (categoria, clareza, confianca, motivo[:400])
 
 
@@ -113,6 +124,8 @@ def instrucoes():
         "fora_escopo ou indeterminado. fora_escopo = build, chore, CI, performance, "
         "dependências ou manutenção de tipo conhecido fora das cinco classes. "
         "indeterminado = intenção não identificável. "
+        "NUNCA use 'outro', 'other' ou qualquer categoria fora da lista. "
+        "Se a intenção não se encaixar claramente, use indeterminado e confiança baixa. "
         "Clareza: vago = não especifica a mudança; parcial = mudança parcialmente "
         "identificável; claro = explica suficientemente o que mudou; "
         "indeterminado = impossível avaliar. Sem corpo pode ser claro. "
@@ -138,7 +151,19 @@ def preflight(modelo):
 
 def prever(titulo, descricao, modelo):
     corpo = {
-        "model": modelo, "stream": False, "format": "json",
+        "model": modelo, "stream": False,
+        # Saída estruturada: Ollama restringe as escolhas aos enums válidos.
+        "format": {
+            "type": "object",
+            "properties": {
+                "categoria": {"type": "string", "enum": list(CATEGORIAS)},
+                "clareza": {"type": "string", "enum": list(CLAREZAS)},
+                "confianca": {"type": "string", "enum": list(CONFIANCAS)},
+                "justificativa": {"type": "string"},
+            },
+            "required": ["categoria", "clareza", "confianca", "justificativa"],
+            "additionalProperties": False,
+        },
         "options": {"temperature": 0, "num_predict": 230},
         "messages": [
             {"role": "system", "content": instrucoes()},
