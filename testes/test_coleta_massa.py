@@ -36,9 +36,9 @@ class TestarColetaMassa(unittest.TestCase):
             self.assertEqual(timeout, 90)
             self.assertIn("/data/python/data.jsonl", requisicao.full_url)
             return Resposta(
-                b"\\n" + b"\\n".join(
+                b"\n" + b"\n".join(
                     json.dumps(item).encode("utf-8") for item in linhas
-                ) + b"\\n"
+                ) + b"\n"
             )
 
         self.assertEqual(list(ler_hf_jsonl("python", abridor=abrir)), linhas)
