@@ -114,7 +114,7 @@ class TestRotulagemIA(unittest.TestCase):
         from unittest.mock import patch
         import io
         import json
-        from commitx.rotulagem_ia import prever, CATEGORIAS, CLAREZAS
+        from commitx.rotulagem_ia import prever, CATEGORIAS, CLAREZAS_COM_TITULO
 
         pedidos = []
         class Resposta:
@@ -137,9 +137,10 @@ class TestRotulagemIA(unittest.TestCase):
             pedidos[0]["format"]["properties"]["categoria"]["enum"],
             list(CATEGORIAS),
         )
+        # Com título legível, a rubrica v3 restringe clareza a 3 classes.
         self.assertEqual(
             pedidos[0]["format"]["properties"]["clareza"]["enum"],
-            list(CLAREZAS),
+            list(CLAREZAS_COM_TITULO),
         )
 
     def test_retentativa_json_ollama_sem_rede(self):
