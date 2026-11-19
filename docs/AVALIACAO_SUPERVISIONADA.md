@@ -37,3 +37,11 @@ O TF-IDF e a Regressão Logística são ajustados **somente no treino humano**, 
 O baseline prevê sempre a classe mais frequente do treino; serve para comparação. Macro-F1 dá igual peso às classes; acurácia mede a fração total correta. Amostras pequenas geram resultados instáveis. Os limites acima são mínimos operacionais, não garantia estatística.
 
 **Atenção:** alguns rótulos anteriores podem ter sido atribuídos com assistência de IA. Esses dados não são automaticamente um teste humano cego e independente. Valide a procedência antes de alegar desempenho real e não use a partição de teste para ajustar o modelo depois de observar resultados.
+
+## Correção da auditoria dos 24 erros
+
+A auditoria de `erros_categoria.csv` identificou 24 divergências na validação: 6 exemplos `fix` previstos como `docs` e nenhum acerto entre os 5 exemplos reais de `refactor`. Alguns rótulos humanos podem ser ambíguos sem inspeção do diff. Esse diagnóstico não fornece novos rótulos, e não autoriza utilizar o conjunto de validação como treinamento.
+
+**Proteção adicional:** o CSV de preparação pode guardar vários repositórios separados por vírgula em `repositorio` (por exemplo, `equipe/projeto,equipe/projeto`). O avaliador agora compara as origens individualmente entre treino, validação e teste. Se aparecer sobreposição, a avaliação será bloqueada; não contorne o bloqueio usando dados de validação para treinar.
+
+Execute `status` novamente depois de atualizar a branch, antes de reavaliar. Qualquer reavaliação deve utilizar uma pasta `--saida` nova; relatórios anteriores permanecem preservados.
