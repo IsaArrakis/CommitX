@@ -1,12 +1,14 @@
 """Testes locais sem rede para o coletor em massa."""
 import csv
+import io
+import json
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 
 from commitx.coleta_massa import (
-    abrir_banco, dividir_mensagem, exportar_csv, importar_git, importar_hf, registrar,
+    abrir_banco, dividir_mensagem, exportar_csv, importar_git, importar_hf, ler_hf_jsonl, registrar,
 )
 
 
@@ -17,6 +19,29 @@ class TestarColetaMassa(unittest.TestCase):
             ("fix: corrigir tela", "Corrige a paginação"),
         )
         self.assertEqual(dividir_mensagem("", "Título"), ("Título", ""))
+
+    def test_leitor_jsonl_sem_script(self):
+        linhas = [
+            {"repos": "org/repo", "commit": "abc", "message": "fix: corrigir"},
+            {"repos": "org/outro", "commit": "def", "message": "docs: documentar"},
+        ]
+        class Resposta(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                self.close()
+
+        def abrir(requisicao, timeout):
+            self.assertEqual(timeout, 90)
+            self.assertIn("/data/python/data.jsonl", requisicao.full_url)
+            return Resposta(
+                b"\\n" + b"\\n".join(
+                    json.dumps(item).encode("utf-8") for item in linhas
+                ) + b"\\n"
+            )
+
+        self.assertEqual(list(ler_hf_jsonl("python", abridor=abrir)), linhas)
 
     def test_hf_deduplicacao_exportacao(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -31,11 +56,8 @@ class TestarColetaMassa(unittest.TestCase):
                      "message": "docs: criar guia", "lang": "python"},
                 ]
 
-                def carregar(nome, config, split, streaming):
-                    self.assertEqual(nome, "bigcode/commitpackft")
-                    self.assertEqual(config, "python")
-                    self.assertEqual(split, "train")
-                    self.assertTrue(streaming)
+                def carregar(linguagem):
+                    self.assertEqual(linguagem, "python")
                     return iter(linhas)
 
                 self.assertEqual(
