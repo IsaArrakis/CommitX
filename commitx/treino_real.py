@@ -224,6 +224,13 @@ def executar(entrada=ENTRADA, banco=BANCO, destino=DESTINO, apenas_status=False)
                 "repositorios_sobrepostos": v["sobreposicoes_repositorio"],
             }
         return resumo
+    if (destino / "relatorio_treinamento.json").exists() or any(
+        (destino / f"{coluna}.joblib").exists()
+        for coluna in ("categoria", "clareza")
+    ):
+        raise FileExistsError(
+            "Já existem resultados de treinamento. Use outra pasta em --saida."
+        )
     destino.mkdir(parents=True, exist_ok=True)
     for coluna, classes in (
         ("categoria", CATEGORIAS_VALIDAS), ("clareza", CLAREZAS_VALIDAS)
