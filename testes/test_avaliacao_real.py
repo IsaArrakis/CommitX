@@ -121,6 +121,26 @@ class TestAvaliacaoReal(unittest.TestCase):
             resumo["tarefas"]["clareza"]["situacao"], "bloqueada"
         )
 
+    def test_origens_multiplas_detectam_sobreposicao_parcial(self):
+        from commitx.treino_real import verificar
+        from commitx.avaliacao_real import validar_particoes
+        self.linhas[0]["repositorio"] = "alpha/repo,beta/repo"
+        self.linhas[6]["repositorio"] = "beta/repo,gamma/repo"
+        registros = [
+            {
+                "id": linha["id"],
+                "particao": linha["particao"],
+                "repositorio": linha["repositorio"],
+                "categoria": rotulo[1],
+            }
+            for linha, rotulo in zip(self.linhas, self.rotulos)
+        ]
+        self.assertIn("beta/repo", validar_particoes(registros))
+        verificacao = verificar(
+            registros, "categoria", ("fix", "feat", "docs", "refactor", "test")
+        )
+        self.assertIn("beta/repo", verificacao["sobreposicoes_repositorio"])
+
     def test_particao_invalida_gera_erro(self):
         registros = [{
             "id": "1", "repositorio": "repo",
