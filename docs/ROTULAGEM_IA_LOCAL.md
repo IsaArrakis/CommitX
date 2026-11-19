@@ -65,3 +65,21 @@ O comando não sobrescreve CSV existente. A exportação contém somente os rót
 ## Próximos passos
 
 Aferir no piloto a concordância em amostra revisada humana, identificar erros especialmente de clareza, e só depois decidir se ampliaremos o conjunto de pseudo-rótulos para treinamento experimental.
+
+## Corrigir respostas inválidas do Ollama
+
+O modelo local pode retornar nomes em inglês como `bugfix`, `clear`, `high`. A versão atual normaliza apenas sinônimos inequívocos, rejeita valores desconhecidos e repete automaticamente até **3 solicitações** quando o retorno não tem o formato esperado. As respostas que continuam inválidas ficam com status `erro`, sem virar pseudo-rótulo.
+
+Se já executou uma versão anterior com erros:
+
+```bash
+cd ~/CommitX-coleta
+git pull --ff-only
+.venv/bin/python -m unittest discover -s testes -v
+.venv/bin/python -m commitx.rotulagem_ia classificar --limite 100 --retentar-erros
+.venv/bin/python -m commitx.rotulagem_ia status
+```
+
+O parâmetro `--retentar-erros` recupera os commits registrados anteriormente com falha; commits com status `prata` não são processados novamente. O limite 100 corresponde a **até 100 tentativas na nova execução**, não ao total acumulado no banco.
+
+Se houver erros repetidos de comunicação ou indisponibilidade, examine `ollama list` e `sudo systemctl status ollama` antes de tentar novamente.
