@@ -76,18 +76,23 @@ def avaliados(db):
         )
     }
 
-def perguntar(rotulos, titulo, *, entrada=input, saida=print):
+def perguntar(rotulos, titulo, *, entrada=input, saida=print, sugestao=None):
     saida(titulo)
     saida(" | ".join(f"{chave}={nome}" for chave, nome in rotulos.items()))
+    if sugestao in rotulos.values():
+        saida(f"Sugestão: {sugestao}. Pressione ENTER para confirmar ou escolha outro número.")
     while True:
         valor = entrada("> ").strip().lower()
+        if not valor and sugestao in rotulos.values():
+            return sugestao
         if valor in ("q", "s"):
             return valor
         if valor in rotulos:
             return rotulos[valor]
-        saida("Opção inválida. Digite o número, s para pular ou q para sair.")
+        saida("Opção inválida. Digite um número, s para pular ou q para sair.")
 
-def rotular(amostra, db, *, entrada=input, saida=print, revisar=False, limite=None):
+def rotular(amostra, db, *, entrada=input, saida=print, revisar=False, limite=None,
+           sugestor=None):
     anteriores = avaliados(db)
     salvos = 0
     for pos, linha in enumerate(amostra, start=1):
@@ -101,15 +106,38 @@ def rotular(amostra, db, *, entrada=input, saida=print, revisar=False, limite=No
         if (linha.get("descricao") or "").strip():
             saida("Corpo: " + linha["descricao"][:1200])
         saida("Origem: " + (linha.get("origem") or ""))
-        saida("O prefixo é apenas uma sugestão, não é gabarito.")
+        proposta = sugestor.analisar(
+            linha["titulo"], linha.get("descricao") or ""
+        ) if sugestor else {}
+        if proposta:
+            tipo_ia = proposta.get("previsao_ml_categoria")
+            saida("Modelo ML de demonstração (50 exemplos sintéticos): " +
+                  (tipo_ia or "sem previsão"))
+            if proposta.get("origem_categoria"):
+                saida("Origem da sugestão de categoria: " +
+                      proposta["origem_categoria"])
+            if proposta.get("aviso_categoria"):
+                saida("ATENÇÃO: " + proposta["aviso_categoria"])
+            if proposta.get("origem_clareza"):
+                saida("Origem da sugestão de clareza: " +
+                      proposta["origem_clareza"])
+            else:
+                saida("Clareza: sem sugestão automática confiável neste momento.")
+            for alerta in proposta.get("alertas", []):
+                saida("Sinal de escrita: " + alerta)
+        saida("O prefixo e as sugestões são hipóteses, não gabarito.")
         categoria = perguntar(
-            OPCOES_CATEGORIA, "CATEGORIA:", entrada=entrada, saida=saida
+            OPCOES_CATEGORIA, "CATEGORIA:", entrada=entrada, saida=saida,
+            sugestao=proposta.get("categoria"),
         )
         if categoria == "q":
             break
         if categoria == "s":
             continue
-        clareza = perguntar(OPCOES_CLAREZA, "CLAREZA:", entrada=entrada, saida=saida)
+        clareza = perguntar(
+            OPCOES_CLAREZA, "CLAREZA:", entrada=entrada, saida=saida,
+            sugestao=proposta.get("clareza"),
+        )
         if clareza == "q":
             break
         if clareza == "s":
@@ -173,6 +201,10 @@ def main(argv=None):
     iniciar = sub.add_parser("iniciar", help="Abre sessão de rotulagem, retomável.")
     iniciar.add_argument("--limite", type=int, default=20)
     iniciar.add_argument("--revisar", action="store_true")
+    iniciar.add_argument(
+        "--sem-sugestoes", action="store_true",
+        help="Desabilita sugestões; volta à rotulagem inteiramente manual."
+    )
     sub.add_parser("status", help="Mostra quantos já foram rotulados.")
     exp = sub.add_parser("exportar", help="Gera CSV com rótulos humanos.")
     exp.add_argument("--saida", type=Path, required=True)
@@ -184,7 +216,14 @@ def main(argv=None):
                 if args.limite < 1:
                     parser.error("--limite deve ser positivo")
                 try:
-                    n = rotular(amostra, db, revisar=args.revisar, limite=args.limite)
+                    sugestor = None
+                    if not args.sem_sugestoes:
+                        from .sugestoes import Sugestor
+                        sugestor = Sugestor(amostra, db)
+                    n = rotular(
+                        amostra, db, revisar=args.revisar,
+                        limite=args.limite, sugestor=sugestor
+                    )
                 except (EOFError, KeyboardInterrupt):
                     print("\nSessão interrompida; rótulos anteriores preservados.")
                     n = 0
