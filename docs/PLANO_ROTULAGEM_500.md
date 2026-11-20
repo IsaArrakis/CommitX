@@ -93,3 +93,28 @@ A opção `--tamanho 30` agora permite que a sessão apresente todos os 30 commi
 ```
 
 Registre apenas classificações conferidas; exemplos assistidos por IA não são validação cega. Não force clareza `vago` para atingir o mínimo.
+
+## Marco 250: lote de 43 em página única
+
+A revisão em lote agora suporta `--tamanho` de 1 a 50. Uma única página com 43 commits pode ser longa; o terminal permite rolagem. O parâmetro `--limite 43` conta **novas confirmações**, enquanto `--tamanho 43` define a quantidade mostrada simultaneamente.
+
+Antes, confirme que `.venv/bin/python -m commitx.plano_rotulagem status` informa **207** registros. Se o total for diferente, calcule `250 - total`, e ajuste `--quantidade`, `--tamanho` e `--limite` para esse valor, sempre respeitando o máximo de 50 por página. Para total acima de 250, não crie o lote.
+
+```bash
+cd ~/CommitX-coleta
+.venv/bin/python -m commitx.fila_inteligente \\
+  --quantidade 43 \\
+  --saida resultados/amostras/fila-inteligente-06.csv \\
+  --resumo resultados/amostras/fila-inteligente-06.json \\
+  --excluir resultados/amostras/fila-inteligente-01.csv \\
+  --excluir resultados/amostras/fila-inteligente-02.csv \\
+  --excluir resultados/amostras/fila-inteligente-03.csv \\
+  --excluir resultados/amostras/fila-inteligente-04.csv \\
+  --excluir resultados/amostras/fila-inteligente-05.csv
+
+.venv/bin/python -m commitx.rotulagem \\
+  --amostra resultados/amostras/fila-inteligente-06.csv \\
+  lote --tamanho 43 --limite 43 --sem-sugestoes
+```
+
+Os exemplos do treino podem ser escolhidos por incerteza e diversidade, portanto não representam amostragem aleatória da população. Não force rótulos; consulte `dN` para visualizar descrições completas e confira os casos ambíguos com os diffs se existirem. Se receber auxílio da IA para atribuir rótulos, registre essa procedência para não descrevê-los como validação cega independente. Com o marco alcançado, avalie a categoria pelo protocolo existente sem tocar na partição de teste, em uma pasta de saída inédita.
