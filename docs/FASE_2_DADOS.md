@@ -53,16 +53,16 @@ Para evitar sobrescrita, a ferramenta recusa saídas já existentes: use `-02` n
 
 ## 5. Recuperar o SHA original dos IDs de 64 caracteres
 
-O codigo em \`commitx/coleta_massa.py\` confirma que o coletor criou cada \`id\` com SHA-256 de \`repositorio.casefold() + NUL + sha.lower()\`. O SHA original permaneceu salvo na coluna \`sha\` do banco \`resultados/coleta/commits.sqlite3\`.
+O codigo em `commitx/coleta_massa.py` confirma que o coletor criou cada `id` com SHA-256 de `repositorio.casefold() + NUL + sha.lower()`. O SHA original permaneceu salvo na coluna `sha` do banco `resultados/coleta/commits.sqlite3`.
 
-Assim, nao precisamos tentar adivinhar o SHA a partir do ID. Recuperamos os dados por \`id\` em uma consulta SQLite de somente leitura, e recalculamos o hash para verificar a integridade.
+Assim, nao precisamos tentar adivinhar o SHA a partir do ID. Recuperamos os dados por `id` em uma consulta SQLite de somente leitura, e recalculamos o hash para verificar a integridade.
 
-\`\`\`bash
+```bash
 .venv/bin/python -m commitx.fase2_vinculos \
   --saida resultados/fase2/vinculos-rotulados-01.csv \
   --resumo resultados/fase2/vinculos-rotulados-01.json
 
 cat resultados/fase2/vinculos-rotulados-01.json
-\`\`\`
+```
 
-Por padrao, somente os IDs com rotulos existentes sao auditados. A opcao \`--todos\` inclui todos os registros da base. O arquivo resultante nao contem diffs nem e uma base de treinamento: um SHA recuperado precisa ser verificado no repositorio original, sobretudo para registros do Hugging Face ou com multiplos nomes de repositorio. Os arquivos CSV e SQLite existentes nunca sao modificados. Use nomes novos para repetir o experimento.
+Por padrao, somente os IDs com rotulos existentes sao auditados. A opcao `--todos` inclui todos os registros da base. O arquivo resultante nao contem diffs nem e uma base de treinamento: um SHA recuperado precisa ser verificado no repositorio original, sobretudo para registros do Hugging Face ou com multiplos nomes de repositorio. Os arquivos CSV e SQLite existentes nunca sao modificados. Use nomes novos para repetir o experimento.
