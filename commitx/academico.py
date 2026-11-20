@@ -102,7 +102,7 @@ def _batch_previsoes(model, batch):
     if valid:
         x = [textos[i] for i in valid]
         vectors = model.named_steps["tfidf"].transform(x)
-        pred = _pontuacoes(model, vectors)
+        pred = _pontuacoes(model, x)
         for k, (classe, segunda, margem) in zip(valid, pred):
             _, row, titulo = batch[k]
             parsed = parse_cabecalho(titulo)
