@@ -49,10 +49,19 @@ def analisar_commit(repositorio, commit="HEAD", *, max_chars=8000):
     sha = _git(raiz, "rev-parse", "--verify", f"{commit}^{{commit}}").strip()
     titulo = _git(raiz, "show", "-s", "--format=%s", sha).strip()
     corpo = _git(raiz, "show", "-s", "--format=%b", sha).strip()
-    linhas = _git(
-        raiz, "diff-tree", "--root", "--no-commit-id", "--numstat",
-        "-r", "--no-renames", sha,
-    )
+    # Para commits com pais, compara sempre com o primeiro pai. Isso evita
+    # a saída vazia que "git show" pode produzir em commits de merge.
+    pais = _git(raiz, "rev-list", "--parents", "-n", "1", sha).strip().split()[1:]
+    if pais:
+        linhas = _git(
+            raiz, "diff", "--numstat", "--no-ext-diff", "--no-renames",
+            "--no-textconv", pais[0], sha, "--",
+        )
+    else:
+        linhas = _git(
+            raiz, "diff-tree", "--root", "--no-commit-id", "--numstat",
+            "-r", "--no-renames", sha,
+        )
     arquivos = []
     adicionadas = removidas = 0
     for linha in linhas.splitlines():
@@ -65,12 +74,20 @@ def analisar_commit(repositorio, commit="HEAD", *, max_chars=8000):
             removidas += int(r)
         arquivos.append({"arquivo": nome, "adicionadas": int(a) if a.isdigit() else None,
                          "removidas": int(r) if r.isdigit() else None})
-    patch = _git(
-        raiz, "show", "--format=", "--no-ext-diff",
-        "--no-renames", "--no-color", "--no-textconv", sha,
-    )
+    if pais:
+        patch = _git(
+            raiz, "diff", "--patch", "--no-ext-diff", "--no-renames",
+            "--no-color", "--no-textconv", pais[0], sha, "--",
+        )
+    else:
+        patch = _git(
+            raiz, "show", "--format=", "--no-ext-diff",
+            "--no-renames", "--no-color", "--no-textconv", sha,
+        )
     return {
         "commit": sha,
+        "comparado_com": pais[0] if pais else None,
+        "merge": len(pais) > 1,
         "titulo": titulo,
         "descricao": corpo,
         "quantidade_arquivos": len(arquivos),
@@ -101,6 +118,8 @@ def main(argv=None):
         return 0
     print("Commit:", resultado["commit"][:12])
     print("Mensagem:", resultado["titulo"])
+    if resultado["merge"]:
+        print("Commit de merge: diferenças em relação ao primeiro pai.")
     print("Arquivos alterados:", resultado["quantidade_arquivos"])
     print("Linhas adicionadas:", resultado["linhas_adicionadas"])
     print("Linhas removidas:", resultado["linhas_removidas"])
