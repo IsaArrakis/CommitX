@@ -12,6 +12,7 @@ import argparse
 from collections import Counter, defaultdict
 import csv
 import json
+import sqlite3
 from pathlib import Path
 
 from joblib import dump, load
@@ -72,23 +73,37 @@ def _pontuacoes(model, textos):
     return rows
 
 
-def _exclusoes(preparado):
-    """Bloqueia IDs e textos da base conhecida; e repositorios reservados."""
+def _exclusoes(preparado, banco=BANCO):
+    """Exclui rotulados humanos e particoes reservadas, nao os 97 mil inteiros.
+
+    O CSV completo contem milhares de titulos ainda nao rotulados.
+    Excluir todos os IDs seria um bug: impediria qualquer pseudo-rotulagem.
+    """
     arquivo = Path(preparado)
+    banco = Path(banco)
     ids, titulos, repos_reservados = set(), set(), set()
-    if not arquivo.is_file():
-        raise ValueError("CSV preparado nao encontrado: " + str(arquivo))
+    if not arquivo.is_file() or not banco.is_file():
+        raise ValueError("CSV preparado ou banco de rotulos nao encontrado")
+    con = sqlite3.connect("file:" + banco.resolve().as_posix() + "?mode=ro", uri=True)
+    try:
+        rotulados = {uid for (uid,) in con.execute("SELECT id FROM avaliacoes")}
+    finally:
+        con.close()
     with arquivo.open(encoding="utf-8-sig", newline="") as f:
         leitor = csv.DictReader(f)
         obrig = {"id", "titulo", "particao", "repositorio"}
         if not obrig.issubset(leitor.fieldnames or []):
             raise ValueError("CSV preparado sem colunas de controle")
         for row in leitor:
-            ids.add((row["id"] or "").strip())
-            title = _text((row["titulo"] or "").strip())
-            if title:
-                titulos.add(" ".join(title.casefold().split()))
-            if row["particao"] != "treino":
+            particao = (row.get("particao") or "").strip().lower()
+            reservado = particao in ("validacao", "teste")
+            humano = (row.get("id") or "").strip() in rotulados
+            if reservado or humano:
+                ids.add((row["id"] or "").strip())
+                title = _text((row["titulo"] or "").strip())
+                if title:
+                    titulos.add(" ".join(title.casefold().split()))
+            if reservado:
                 for repo in (row.get("repositorio") or "").split(","):
                     if repo.strip():
                         repos_reservados.add(repo.strip())
@@ -101,7 +116,6 @@ def _batch_previsoes(model, batch):
     resultados = [None] * len(batch)
     if valid:
         x = [textos[i] for i in valid]
-        vectors = model.named_steps["tfidf"].transform(x)
         pred = _pontuacoes(model, x)
         for k, (classe, segunda, margem) in zip(valid, pred):
             _, row, titulo = batch[k]
@@ -117,12 +131,12 @@ def _batch_previsoes(model, batch):
     return resultados
 
 
-def _pseudo(model, entrada, prepared, *, minimo=1.5, max_por_classe=2000):
+def _pseudo(model, entrada, prepared, *, banco=BANCO, minimo=1.5, max_por_classe=2000):
     if max_por_classe == 0:
         return [], Counter(), Counter()
     if minimo < 0:
         raise ValueError("Margem minima deve ser nao-negativa")
-    excluidos_id, excluidos_titulo, repos_proibidos = _exclusoes(prepared)
+    excluidos_id, excluidos_titulo, repos_proibidos = _exclusoes(prepared, banco)
     escolhidos = defaultdict(list)
     descartados = Counter()
     lote = []
@@ -148,7 +162,7 @@ def _pseudo(model, entrada, prepared, *, minimo=1.5, max_por_classe=2000):
             repo = row.get("repositorio") or row.get("repository") or ""
             repo_set = {s.strip() for s in repo.split(",") if s.strip()}
             particao = (row.get("particao") or "").lower().strip()
-            if particao in ("teste", "validacao") or repo_set & repos_proibidos:
+            if particao not in ("", "treino") or repo_set & repos_proibidos:
                 descartados["particao_reservada"] += 1
                 continue
             vistos.add(chave)
@@ -164,14 +178,15 @@ def _pseudo(model, entrada, prepared, *, minimo=1.5, max_por_classe=2000):
 
 
 def executar(*, entrada, saida, preparado=PREPARADO, banco=BANCO,
-             pseudo_max_por_classe=0, margem=1.5, tamanho_lote=BATCH):
+             pseudo_max_por_classe=0, margem=1.5, tamanho_lote=BATCH,
+             peso_pseudo=0.2):
     entrada, saida = Path(entrada), Path(saida)
     if not entrada.is_file():
         raise ValueError("Arquivo de commits nao encontrado: " + str(entrada))
     if saida.exists():
         raise FileExistsError("Saida existente, escolha pasta nova: " + str(saida))
-    if pseudo_max_por_classe < 0 or not 1 <= tamanho_lote <= 5000:
-        raise ValueError("Quantidade de pseudo rotulos ou lote invalido")
+    if pseudo_max_por_classe < 0 or not 1 <= tamanho_lote <= 5000 or not 0 < peso_pseudo <= 1:
+        raise ValueError("Quantidade, lote ou peso de pseudo rotulos invalido")
     train = carregar_treino(preparado, banco)
     counts = Counter(x["categoria"] for x in train)
     if set(counts) != set(CLASSES) or min(counts.values()) < 5:
@@ -181,13 +196,14 @@ def executar(*, entrada, saida, preparado=PREPARADO, banco=BANCO,
     teacher = _modelo()
     teacher.fit(titles, labels)
     pseudo, pseudo_counts, descartados = _pseudo(
-        teacher, entrada, preparado, minimo=margem,
+        teacher, entrada, preparado, banco=banco, minimo=margem,
         max_por_classe=pseudo_max_por_classe,
     )
     final = teacher
     if pseudo:
         final = _modelo()
-        final.fit(titles + [t for t,c in pseudo], labels + [c for t,c in pseudo])
+        final.fit(titles + [_text(t) for t,c in pseudo], labels + [c for t,c in pseudo],
+                  model__sample_weight=[1.0] * len(titles) + [peso_pseudo] * len(pseudo))
     saida.mkdir(parents=True, exist_ok=False)
     dump(final, saida/MODELO)
     destino = saida/"previsoes.csv"
@@ -229,6 +245,7 @@ def executar(*, entrada, saida, preparado=PREPARADO, banco=BANCO,
         "categorias_previstas":dict(counts_pred),
         "revisao_sugerida":revisao,
         "margem_pseudo_minima":margem,
+        "peso_pseudo":peso_pseudo,
         "modelo":"TF-IDF palavra 1-2gram + LinearSVC balanceada",
         "avaliacao":"NAO realizada neste comando. Previsoes e pseudo rotulos NAO sao gabarito.",
         "limites":[
@@ -264,6 +281,7 @@ def main(argv=None):
     run.add_argument("--banco",type=Path,default=BANCO)
     run.add_argument("--pseudo-max-por-classe",type=int,default=0)
     run.add_argument("--margem",type=float,default=1.5)
+    run.add_argument("--peso-pseudo",type=float,default=0.2)
     run.add_argument("--lote",type=int,default=BATCH)
     single=sub.add_parser("analisar",help="Classificar um titulo")
     single.add_argument("--modelo",type=Path,required=True)
@@ -273,7 +291,8 @@ def main(argv=None):
         if a.acao=="executar":
             result=executar(entrada=a.entrada,saida=a.saida,preparado=a.preparado,
                            banco=a.banco,pseudo_max_por_classe=a.pseudo_max_por_classe,
-                           margem=a.margem,tamanho_lote=a.lote)
+                           margem=a.margem,tamanho_lote=a.lote,
+                           peso_pseudo=a.peso_pseudo)
         else:
             path=a.modelo/MODELO if a.modelo.is_dir() else a.modelo
             if not path.is_file():
