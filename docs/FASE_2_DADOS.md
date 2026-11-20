@@ -83,3 +83,25 @@ cat resultados/fase2/verificacao-locais-01.json
 ```
 
 As demais origens (Hugging Face, listas de vários repositórios) permanecem fora desta verificação local. Uma confirmação de objeto Git **não** comprova qualidade ou independência do rótulo humano. Para uma repetição, escolha nomes de saída inéditos. Nenhum dos bancos SQLite é alterado.
+
+
+## 7. Criar uma base experimental a partir dos SHAs locais verificados
+
+O relatório anterior identificou 54 commits locais com SHA e estatísticas de diff disponíveis. O novo módulo cruza o arquivo de verificação com os rótulos do SQLite em modo leitura, confirma novamente o hash e o objeto Git e gera **um arquivo separado**.
+
+Por segurança metodológica, a execução padrão exporta **somente treino**. A partição `teste` não pode ser solicitada; `validacao` só é incluída se selecionada explicitamente. Como alguns rótulos foram auxiliados por IA, a procedência dessa assistência ainda precisa ser auditada antes de apresentar a base como gabarito independente.
+
+```bash
+cd ~/CommitX-coleta
+git pull --ff-only
+.venv/bin/python -m unittest discover -s testes -v
+.venv/bin/python -m commitx.fase2_base_local \
+  --entrada resultados/fase2/verificacao-locais-01.csv \
+  --saida resultados/fase2/base-local-treino-01.csv \
+  --resumo resultados/fase2/base-local-treino-01.json
+cat resultados/fase2/base-local-treino-01.json
+```
+
+O CSV padrão inclui categoria, clareza, metadados do commit e **estatísticas** de linhas e arquivos. Por padrão, não exporta o conteúdo do patch para reduzir risco de divulgação acidental de dados sensíveis. Para uma experiência local com prévias de diff, use a opção `--incluir-patch` e nomes de saída novos, após conferir o conteúdo e a licença dos repositórios.
+
+**Este arquivo ainda não é uma base adequada para avaliar ganhos de acurácia:** temos de conferir a distribuição de classes, número de projetos e independência do conjunto. O treino e a avaliação finais só ocorrerão após essa revisão. Não modifique ou publique inadvertidamente a base de validação ou de teste.
