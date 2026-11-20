@@ -28,6 +28,24 @@ CLAREZAS_TEXTO = ", ".join(CLAREZAS)
 PROMPT_VERSAO = "v6-locais-titulo-corpo-paths-01"
 BANCO_NOVO = "palpites_v6.sqlite3"
 
+SCHEMA_OLLAMA = {
+    "type": "object",
+    "properties": {
+        "categoria": {"type": "string", "enum": list(CATEGORIAS)},
+        "clareza": {"type": "string", "enum": list(CLAREZAS)},
+        "duvida": {"type": "boolean"},
+        "motivo": {"type": "string"},
+    },
+    "required": ["categoria", "clareza", "duvida", "motivo"],
+    "additionalProperties": False,
+}
+
+
+class OllamaIndisponivel(ValueError):
+    """Falha de conexao com Ollama: interromper apenas a consulta remota."""
+
+
+
 
 def _texto_linha(r):
     """Mesmo tratamento para inferencia e treinamento; prefixo nao vira etiqueta."""
@@ -147,30 +165,47 @@ def _prompt(r):
 
 
 def consultar_ollama(r, modelo, *, endpoint="http://127.0.0.1:11434/api/generate"):
-    req = Request(
-        endpoint,
-        data=json.dumps({
-            "model": modelo, "prompt": _prompt(r), "stream": False,
-            "format": "json", "options": {"temperature": 0, "num_predict": 180},
-        }, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"}, method="POST",
+    """Solicita JSON estruturado e tenta novamente uma vez se for invalido."""
+    erro_final = None
+    for tentativa in range(2):
+        req = Request(
+            endpoint,
+            data=json.dumps({
+                "model": modelo, "prompt": _prompt(r),
+                "stream": False, "format": SCHEMA_OLLAMA,
+                "options": {"temperature": 0, "num_predict": 240},
+            }, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with urlopen(req, timeout=100) as resp:
+                resposta = json.loads(resp.read(160000).decode("utf-8"))
+        except (TimeoutError, URLError, HTTPError, OSError) as err:
+            raise OllamaIndisponivel(
+                "Ollama local nao respondeu: " + str(err)[:150]
+            ) from err
+        try:
+            j = json.loads(resposta["response"])
+            if not isinstance(j, dict):
+                raise ValueError("JSON nao e um objeto")
+            cat, cla = j["categoria"], j["clareza"]
+            duvida, motivo = j["duvida"], j["motivo"]
+            if not isinstance(cat, str) or not isinstance(cla, str):
+                raise ValueError("Categoria ou clareza nao sao texto")
+            # Normalizar caixa e espacos, sem adivinhar categorias desconhecidas.
+            cat, cla = cat.strip().lower(), cla.strip().lower()
+            if cat not in CATEGORIAS or cla not in CLAREZAS:
+                raise ValueError("Resposta fora do vocabulario")
+            if not isinstance(duvida, bool) or not isinstance(motivo, str):
+                raise ValueError("Tipos incorretos para duvida/motivo")
+            return cat, cla, duvida, motivo[:160]
+        except (KeyError, TypeError, ValueError) as err:
+            erro_final = err
+            if tentativa == 0:
+                print("JSON do Ollama invalido; repetindo consulta uma vez...")
+    raise ValueError(
+        "Resposta invalida apos 2 tentativas: " + str(erro_final)[:150]
     )
-    try:
-        with urlopen(req, timeout=100) as resp:
-            resposta = json.loads(resp.read(160000).decode("utf-8"))
-    except (TimeoutError, URLError, HTTPError) as err:
-        raise ValueError("Ollama local indisponivel: " + str(err)[:150]) from err
-    try:
-        j = json.loads(resposta["response"])
-        cat = j["categoria"]
-        cla = j["clareza"]
-        duvida = j["duvida"]
-        motivo = str(j["motivo"])
-        if cat not in CATEGORIAS or cla not in CLAREZAS or not isinstance(duvida, bool):
-            raise ValueError("Resposta fora do vocabulario")
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as err:
-        raise ValueError("Resposta Ollama invalida (nao salvar como rotulo): " + str(err)) from err
-    return cat, cla, duvida, motivo[:160]
 
 
 def _banco_v6(caminho):
@@ -182,6 +217,9 @@ def _banco_v6(caminho):
         clareza_ollama TEXT NOT NULL, duvida INTEGER NOT NULL,
         motivo TEXT NOT NULL, modelo TEXT NOT NULL,
         prompt TEXT NOT NULL, criado_em TEXT NOT NULL
+    )""")
+    con.execute("""CREATE TABLE IF NOT EXISTS falhas (
+        id TEXT PRIMARY KEY, erro TEXT NOT NULL, criado_em TEXT NOT NULL
     )""")
     return con
 
@@ -230,20 +268,31 @@ def executar(*, entrada=ENTRADA, plano=PLANO, banco_v5=BANCO,
                 raise ValueError("Banco V6 existente sem metadados; interrompido")
             meta.write_text(json.dumps(esperado, indent=2) + "\n", encoding="utf-8")
         ja = {t[0] for t in con.execute("SELECT id FROM palpites")}
-        if any(uid not in preds for uid in ja):
+        falhas_anteriores = {t[0] for t in con.execute("SELECT id FROM falhas")}
+        if any(uid not in preds for uid in ja | falhas_anteriores):
             raise ValueError("Banco V6 contem ID fora dos commits pendentes de treino")
         selecionados = _selecionar_diversos(
-            pendentes, preds, rotulos, ja,
+            pendentes, preds, rotulos, ja | falhas_anteriores,
             0 if sem_ollama else quantidade_ollama,
         )
         realizados = 0
+        pulados = 0
         for i, r in enumerate(selecionados, 1):
             try:
                 cat, cla, duvida, motivo = cliente(r, modelo_ollama)
-            except (ValueError, OSError) as err:
-                print(f"Ollama interrompido no commit {i}/{len(selecionados)}: {err}")
-                print("Resultados anteriores preservados. Verifique ollama list/ollama serve e rode novamente.")
+            except (OllamaIndisponivel, OSError) as err:
+                print(f"Ollama indisponivel no commit {i}/{len(selecionados)}: {err}")
+                print("Palpites anteriores preservados. Rode novamente quando estiver disponivel.")
                 break
+            except ValueError as err:
+                with con:
+                    con.execute(
+                        "INSERT OR REPLACE INTO falhas VALUES (?,?,?)",
+                        (r["id"], str(err)[:350], datetime.now(timezone.utc).isoformat()),
+                    )
+                pulados += 1
+                print(f"Commit {i}/{len(selecionados)} pulado: JSON invalido; seguindo.")
+                continue
             with con:
                 con.execute(
                     "INSERT INTO palpites VALUES (?,?,?,?,?,?,?,?)",
@@ -253,6 +302,7 @@ def executar(*, entrada=ENTRADA, plano=PLANO, banco_v5=BANCO,
             realizados += 1
             if realizados % 10 == 0:
                 print(f"Ollama: {realizados}/{len(selecionados)} novos palpites salvos")
+        falhas_total = con.execute("SELECT COUNT(*) FROM falhas").fetchone()[0]
         resultado_ollama = {
             uid: {
                 "categoria_ollama": cat, "clareza_ollama": cla, "duvida": duvida,
@@ -300,6 +350,8 @@ def executar(*, entrada=ENTRADA, plano=PLANO, banco_v5=BANCO,
         "svm_previsoes_provisorias": len(preds),
         "ollama_palpite_armazenado": len(resultado_ollama),
         "ollama_novos_nesta_execucao": realizados,
+        "ollama_respostas_invalidas_puladas_nesta_execucao": pulados,
+        "ollama_respostas_invalidas_total": falhas_total,
         "modelo_ollama": modelo_ollama,
         "triagem_por_prioridade": dict(contagem),
         "validação_foi_lida_para_classificar": False,
@@ -308,6 +360,7 @@ def executar(*, entrada=ENTRADA, plano=PLANO, banco_v5=BANCO,
             "Nao e uma medicao de acuracia: nenhuma previsao automatica e gabarito.",
             "Treino usa 120 ou mais rotulos V5 que podem ter sido assistidos por IA.",
             "Concordancia entre SVM e Ollama NAO implica que ambos estejam certos.",
+            "Respostas invalidas do Ollama sao puladas e registradas em SQLite separado.",
             "Sem calibracao de margens ou probabilidades.",
             "Nenhum registro de validacao/teste usado na inferencia.",
             "Nenhum rotulo V5, repo Git ou modelo anterior foi alterado.",
