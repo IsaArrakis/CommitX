@@ -104,7 +104,6 @@ def _avaliar_fold(treino, validacao):
     met = DictVectorizer()
     dt = met.fit_transform([r["atributos"] for r in treino])
     dv = met.transform([r["atributos"] for r in validacao])
-    from sklearn.preprocessing import MaxAbsScaler
     # Rescala numericos, mas nao usa a validacao no ajuste.
     from sklearn.preprocessing import StandardScaler
     scale = StandardScaler(with_mean=False)
