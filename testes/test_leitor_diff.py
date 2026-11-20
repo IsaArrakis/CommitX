@@ -48,6 +48,19 @@ class TestLeitorDiff(unittest.TestCase):
         self.assertEqual(len(resultado["diff_previa"]), 100)
         self.assertTrue(resultado["diff_truncado"])
 
+    def test_merge_compara_com_primeiro_pai(self):
+        self.git("switch", "-qc", "experimento", "HEAD~1")
+        (self.raiz / "ramo.txt").write_text("novo ramo\n", encoding="utf-8")
+        self.git("add", "ramo.txt")
+        self.git("commit", "-qm", "feat: criar arquivo no ramo")
+        self.git("switch", "-q", "-")
+        self.git("merge", "--no-ff", "-qm", "merge: integrar experimento", "experimento")
+        resultado = analisar_commit(self.raiz)
+        self.assertTrue(resultado["merge"])
+        self.assertIsNotNone(resultado["comparado_com"])
+        self.assertEqual(resultado["quantidade_arquivos"], 1)
+        self.assertIn("ramo.txt", resultado["diff_previa"])
+
     def test_rejeita_opcao_como_referencia(self):
         with self.assertRaisesRegex(ValueError, "commit válido"):
             analisar_commit(self.raiz, "--help")
