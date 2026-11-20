@@ -66,3 +66,20 @@ cat resultados/fase2/vinculos-rotulados-01.json
 ```
 
 Por padrao, somente os IDs com rotulos existentes sao auditados. A opcao `--todos` inclui todos os registros da base. O arquivo resultante nao contem diffs nem e uma base de treinamento: um SHA recuperado precisa ser verificado no repositorio original, sobretudo para registros do Hugging Face ou com multiplos nomes de repositorio. Os arquivos CSV e SQLite existentes nunca sao modificados. Use nomes novos para repetir o experimento.
+
+## 6. Verificar quais SHAs existem nos repositórios Git locais
+
+O vínculo de todos os 177 IDs foi confirmado pelo hash, mas ainda não é possível afirmar que os diffs existem. Por isso a próxima ferramenta verifica, **sem rede**, os registros de origem `git:local`: confere se a pasta do repositório ainda existe e se o SHA corresponde a um commit disponível naquele repositório. Para os commits encontrados, lê apenas **contagens de arquivos/linhas** — não publica o patch.
+
+```bash
+cd ~/CommitX-coleta
+git pull --ff-only
+.venv/bin/python -m unittest discover -s testes -v
+.venv/bin/python -m commitx.fase2_verificar_locais \\
+  --entrada resultados/fase2/vinculos-rotulados-01.csv \\
+  --saida resultados/fase2/verificacao-locais-01.csv \\
+  --resumo resultados/fase2/verificacao-locais-01.json
+cat resultados/fase2/verificacao-locais-01.json
+```
+
+As demais origens (Hugging Face, listas de vários repositórios) permanecem fora desta verificação local. Uma confirmação de objeto Git **não** comprova qualidade ou independência do rótulo humano. Para uma repetição, escolha nomes de saída inéditos. Nenhum dos bancos SQLite é alterado.
