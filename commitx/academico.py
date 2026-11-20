@@ -154,16 +154,16 @@ def _pseudo(model, entrada, prepared, *, banco=BANCO, minimo=1.5, max_por_classe
             if len(escolhidos[cat]) >= max_por_classe:
                 descartados["limite_por_classe"] += 1
                 continue
-            chave = " ".join(_text(titulo).casefold().split())
-            uid = (row.get("id") or row.get("sha") or "").strip()
-            if not chave or chave in vistos or uid in excluidos_id:
-                descartados["duplicado_ou_ja_rotulado"] += 1
-                continue
             repo = row.get("repositorio") or row.get("repository") or ""
             repo_set = {s.strip() for s in repo.split(",") if s.strip()}
             particao = (row.get("particao") or "").lower().strip()
             if particao not in ("", "treino") or repo_set & repos_proibidos:
                 descartados["particao_reservada"] += 1
+                continue
+            chave = " ".join(_text(titulo).casefold().split())
+            uid = (row.get("id") or row.get("sha") or "").strip()
+            if not chave or chave in vistos or uid in excluidos_id:
+                descartados["duplicado_ou_ja_rotulado"] += 1
                 continue
             vistos.add(chave)
             escolhidos[cat].append((titulo, cat))
