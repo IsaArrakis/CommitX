@@ -113,11 +113,11 @@ def analisar(*, entrada=ENTRADA, saida=SAIDA, quantidade=30):
         f"- Sem Ollama: **{len(rows)-len(comparados)}**", "",
         "## Pares de categorias (SVM -> Ollama)", "",
     ]
-    md.extend(f"- \`{a}\` -> \`{b}\`: {n}" for (a,b), n in pares.most_common())
+    md.extend(f"- `{a}` -> `{b}`: {n}" for (a,b), n in pares.most_common())
     md.extend(["", "## Exemplos prioritarios (NAO sao erros comprovados)", ""])
     md.extend(
-        f"{i}. \`{r['id'][:12]}\` | SVM \`{r['categoria_svm']}\` -> "
-        f"Ollama \`{r['categoria_ollama']}\` | {r['titulo'][:110].replace(chr(10), ' ')}"
+        f"{i}. `{r['id'][:12]}` | SVM `{r['categoria_svm']}` -> "
+        f"Ollama `{r['categoria_ollama']}` | {r['titulo'][:110].replace(chr(10), ' ')}"
         for i,r in enumerate(escolhidos,1)
     )
     md.extend([
