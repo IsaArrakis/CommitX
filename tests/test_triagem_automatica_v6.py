@@ -84,6 +84,28 @@ class TestTriagemV6(unittest.TestCase):
             linhas = list(csv.DictReader(f))
         self.assertEqual(sum(bool(r["categoria_ollama"]) for r in linhas), 10)
 
+    def test_erro_de_formato_nao_interrompe_lote_e_preserva_cache(self):
+        chamadas = []
+        def cliente(r, modelo):
+            chamadas.append(r["id"])
+            if len(chamadas) in (2, 4):
+                raise ValueError("Resposta fora do vocabulario")
+            return "fix", "claro", False, "sugestao automatica"
+        resumo = self.executar(quantidade_ollama=6, cliente=cliente)
+        self.assertEqual(resumo["ollama_novos_nesta_execucao"], 4)
+        self.assertEqual(resumo["ollama_respostas_invalidas_puladas_nesta_execucao"], 2)
+        self.assertEqual(resumo["ollama_respostas_invalidas_total"], 2)
+        self.assertEqual(resumo["ollama_palpite_armazenado"], 4)
+        self.assertEqual(len(chamadas), 6)
+        with sqlite3.connect(self.saida / "palpites_v6.sqlite3") as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM falhas").fetchone()[0], 2)
+        def cliente_novo(r, modelo):
+            chamadas.append(r["id"])
+            return "docs", "parcial", False, "sugestao automatica"
+        proxima = self.executar(quantidade_ollama=5, cliente=cliente_novo)
+        self.assertEqual(proxima["ollama_palpite_armazenado"], 9)
+        self.assertEqual(len(set(chamadas)), 11)
+
     def test_bloqueia_treino_com_rotulo_de_validacao(self):
         r = next(r for r in self.linhas if self.plan["repositorios"][r["repositorio"]] == "validacao")
         with sqlite3.connect(self.banco) as db:
