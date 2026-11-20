@@ -36,7 +36,7 @@ def _conectar_leitura(caminho):
 
 def _identificador(repo, sha):
     return hashlib.sha256(
-        (repo.casefold() + "\\0" + sha.lower()).encode("utf-8")
+        (repo.casefold() + "\0" + sha.lower()).encode("utf-8")
     ).hexdigest()
 
 
