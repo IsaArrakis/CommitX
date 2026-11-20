@@ -2,7 +2,7 @@
 
 Protótipo acadêmico em Python que classifica a intenção de mensagens de commit e recomenda melhorias de escrita. Recebe título e descrição e sugere uma de cinco categorias: `fix`, `feat`, `docs`, `refactor` ou `test`.
 
-A classificação usa aprendizado supervisionado. A revisão de escrita usa regras explicáveis e não atribui nota de clareza. O programa não lê o diff para confirmar o que mudou no código.
+A classificação usa aprendizado supervisionado. A revisão de escrita usa regras explicáveis e não atribui nota de clareza. A classificação atual não lê o diff para confirmar o que mudou no código. Um leitor experimental separado permite inspecionar alterações, sem realizar classificação.
 
 ## Começar no Linux
 
@@ -45,6 +45,17 @@ O modo `--json` imprime a mesma análise em formato estruturado. O modelo padrã
 A saída separa o tipo declarado no cabeçalho, a categoria sugerida e os alertas de escrita. Uma divergência entre tipo e previsão pede revisão humana; ela não prova que o autor errou. Tipos explicitamente declarados fora das cinco classes e textos sem características conhecidas não recebem sugestão automática. Isso não detecta todos os casos fora do escopo.
 
 Os modelos para preencher contêm campos entre colchetes. O autor precisa completá-los com informações reais; o programa não inventa o bug ou a implementação. “Arrumar” não é uma palavra proibida. O problema de “arrumar bug no painel” é não identificar qual comportamento mudou.
+
+## Ler alterações de um commit (Fase 1 do CommitX 2.0)
+
+O leitor experimental consulta um **repositório Git local**, apresenta a mensagem do commit, nomes de arquivos, contagens de linhas e um trecho do `git diff`. Para commits de merge, utiliza as mudanças em relação ao primeiro pai. Ele **não classifica** o commit nem altera arquivos ou o SQLite de rótulos.
+
+```bash
+.venv/bin/python -m commitx.leitor_diff --repositorio . --commit HEAD
+.venv/bin/python -m commitx.leitor_diff --repositorio . --commit 'HEAD~1' --json
+```
+
+Veja o tutorial [Entendendo o git diff](docs/ETAPA_1_GIT_DIFF.md). Esta é apenas a primeira fase da pesquisa: o classificador textual ainda não usa o diff.
 
 ## Avaliar e gerar relatórios
 
