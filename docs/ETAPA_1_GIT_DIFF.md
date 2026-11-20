@@ -21,12 +21,14 @@ git switch feat/leitura-git-diff
 .venv/bin/python -m commitx.leitor_diff --repositorio . --commit HEAD
 ```
 
-A opção `--commit HEAD` indica o commit mais recente na branch atual. Para examinar o anterior, use `--commit 'HEAD~1'` (as aspas funcionam no Fish).
+A opção `--commit HEAD` indica o commit mais recente na branch atual. Se for um commit de merge, o leitor exibe as mudanças em relação ao primeiro pai (a linha principal de onde o merge foi feito). Para examinar o anterior, use `--commit 'HEAD~1'` (as aspas funcionam no Fish).
 
 Para obter dados em JSON:
 
 ```bash
 .venv/bin/python -m commitx.leitor_diff --repositorio . --commit HEAD --json
 ```
+
+Para saber se o leitor passou nos testes, procure uma linha final semelhante a `Ran N tests ... OK`. Se aparecer `FAILED` ou `ERROR`, envie o resultado antes de avançarmos.
 
 **Limitações da primeira versão:** somente repositórios Git locais, somente commits individuais e os metadados do patch; o conteúdo do diff pode ser truncado na visualização. Não trata mudanças não commitadas, não produz classificações e não vincula ainda os diffs aos quase 100 mil commits coletados. Para o estudo comparativo, será necessário ligar com segurança cada exemplo rotulado ao seu repositório e SHA de origem e garantir a separação entre treino e avaliação.
