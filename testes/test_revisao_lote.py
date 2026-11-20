@@ -121,12 +121,29 @@ class TestRevisaoLote(unittest.TestCase):
         ).fetchone()
         self.assertEqual(atual, ("fix", "parcial"))
 
-    def test_rejeita_tamanho_acima_de_30(self):
-        with self.assertRaisesRegex(ValueError, "entre 1 e 30"):
+    def test_rejeita_tamanho_acima_de_50(self):
+        with self.assertRaisesRegex(ValueError, "entre 1 e 50"):
             revisar_em_lote(
-                self.amostra, self.db, tamanho=31, limite=31,
+                self.amostra, self.db, tamanho=51, limite=51,
                 entrada=lambda _: "q", imprimir=lambda *_: None,
             )
+
+    def test_pagina_unica_43_commits_uma_resposta(self):
+        amostra = [
+            {"id": f"amostra43-{i}", "titulo": f"fix: caso {i}",
+             "descricao": "", "origem": "git", "grupo": f"r{i}",
+             "particao": "treino"} for i in range(1, 44)
+        ]
+        resposta = ";".join(f"{i}=1,3" for i in range(1, 44))
+        saidas = []
+        salvos = revisar_em_lote(
+            amostra, self.db, tamanho=43, limite=43,
+            sugestor=None, entrada=lambda _: resposta, imprimir=saidas.append
+        )
+        self.assertEqual(salvos, 43)
+        self.assertEqual(status(amostra, self.db)["avaliados"], 43)
+        self.assertTrue(any("43 mensagens / 43" in s for s in saidas))
+        self.assertTrue(any("[43]" in s for s in saidas))
 
     def test_interrupcao_retorna_sem_perder(self):
         n = self._revisar(["1=1,3", "q"])
