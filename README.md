@@ -26,6 +26,17 @@ Uma pasta antiga chamada `commit-claro` não se torna um clone do CommitX automa
 
 Sem argumentos, o programa abre o modo interativo. Digite um título e, opcionalmente, uma descrição de uma linha. Ele treina uma vez ao iniciar e reutiliza o modelo durante a sessão. Um título vazio ou `Ctrl+C` encerra.
 
+## Consultar mudanças reais de um commit (experimento CommitX 2.0)
+
+O leitor de diff mostra a mensagem, o nome dos arquivos alterados, as contagens de linhas e uma prévia das alterações. **Esta função não classifica commits automaticamente e não modifica o código nem os rótulos existentes.**
+
+```bash
+.venv/bin/python -m commitx.leitor_diff --repositorio . --commit HEAD
+.venv/bin/python -m commitx.leitor_diff --repositorio . --commit 'HEAD~1' --json
+```
+
+Em commits de merge, compara o resultado com o primeiro pai; no primeiro commit, mostra os arquivos adicionados. A prévia pode ser truncada, e o código não equivale a um entendimento semântico automático. Veja [Etapa 1 — git diff](docs/ETAPA_1_GIT_DIFF.md).
+
 ## Analisar mensagens
 
 ```bash
