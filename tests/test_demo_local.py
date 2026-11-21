@@ -18,6 +18,14 @@ class TestDemoLocal(unittest.TestCase):
         self.assertIn("/api/classificar", HTML)
         self.assertIn("/api/resumo", HTML)
 
+    def test_javascript_contem_escapes_de_quebra_de_linha(self):
+        # Uma quebra real dentro de string JS interrompe todo o script:
+        # dados e graficos ficam em "Carregando..." e o botao nao reage.
+        self.assertIn(r'"\nSegunda opcao: "', HTML)
+        self.assertIn(r'"\nMargem SVM: "', HTML)
+        self.assertIn(r'"\n"', HTML)
+        self.assertNotIn('"' + '\n' + 'Segunda opcao', HTML)
+
     def test_resumo_comparativo(self):
         with TemporaryDirectory() as temp:
             a = Path(temp) / "a.json"
