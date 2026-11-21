@@ -27,7 +27,7 @@ RESUMOS = {
 }
 CLASSES = ("fix", "feat", "docs", "refactor", "test")
 
-HTML = """<!doctype html>
+HTML = r"""<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
