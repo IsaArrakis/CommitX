@@ -34,7 +34,8 @@ def avaliar(*, entrada=ENTRADA, plano=PLANO, banco=BANCO,
             preparado=PREPARADO, banco_antigo=BANCO_ANTIGO,
             original=Path("resultados/academico-simples-01/modelo.joblib"),
             hibrido=Path("resultados/classificador-hibrido-v4"),
-            saida=Path("resultados/comparacao-cega-v7-01")):
+            saida=Path("resultados/comparacao-cega-v7-01"),
+            permitir_sobreposicao_repo=False):
     saida = Path(saida)
     if saida.exists():
         raise FileExistsError("Saida existente: " + str(saida))
@@ -59,9 +60,18 @@ def avaliar(*, entrada=ENTRADA, plano=PLANO, banco=BANCO,
         colisao_repo = _nome_repo(r["repositorio"]) in repos_treino
         colisao_titulo = " ".join(texto.casefold().split()) in titulos_treino
         linhas.append((r, texto, colisao_repo, colisao_titulo))
-    seguros = [(r,t) for r,t,cr,ct in linhas if not cr and not ct]
+    # Titulos identicos aos do treino continuam excluidos em todos os modos.
+    seguros = [(r,t) for r,t,cr,ct in linhas
+               if not ct and (permitir_sobreposicao_repo or not cr)]
     if not seguros:
-        raise ValueError("Nenhum exemplo elegivel apos filtrar repositorios e titulos repetidos")
+        rep = sum(cr for _,_,cr,_ in linhas)
+        tit = sum(ct for _,_,_,ct in linhas)
+        raise ValueError(
+            f"Nenhum exemplo elegivel: {len(linhas)} candidatos; "
+            f"{rep} com repositorio ja visto e {tit} com titulo identico ao treino. "
+            "Para diagnostico EXPLORATORIO use --permitir-sobreposicao-repo; "
+            "titulos identicos sempre permanecem excluidos."
+        )
     x = [t for r,t in seguros]
     y = [gold[r["id"]] for r,t in seguros]
     bas = load(original)  # Somente joblib local e confiavel.
@@ -87,6 +97,9 @@ def avaliar(*, entrada=ENTRADA, plano=PLANO, banco=BANCO,
                              "acerto_original":int(a==real),"acerto_hibrido":int(b==real)})
     resumo={
        "protocolo":"comparacao-V5-assistida-exploratoria-modelos-congelados",
+       "repositorios_sobrepostos_no_lote":sum(cr for _,_,cr,_ in linhas),
+       "titulos_duplicados_no_treino":sum(ct for _,_,_,ct in linhas),
+       "sobreposicao_repo_permitida_exploratoriamente":bool(permitir_sobreposicao_repo),
        "total_rotulos_validacao_v5":len(validacao_rotulada),
        "distribuicao_validacao_total":dict(Counter(gold[r["id"]] for r in validacao_rotulada)),
        "candidatos_cinco_classes":len(candidatos),
@@ -98,7 +111,11 @@ def avaliar(*, entrada=ENTRADA, plano=PLANO, banco=BANCO,
        "modelos":resultados,
        "modelo_hibrido_melhorou":resultados["hibrido_v4"]["acertos"]>resultados["svm_original"]["acertos"],
        "nota":"DIAGNOSTICO ASSISTIDO, NAO afericao cega independente: os rotulos deste lote "
-              "foram sugeridos por IA. Acuracia calculada SOMENTE para as cinco classes do modelo; "
+              "foram sugeridos por IA. Se sobreposicao_repo_permitida_exploratoriamente for true, "
+              "os mesmos repositorios aparecem no treino antigo e na amostra avaliada; "
+              "resultados NAO medem generalizacao para repositorios novos. "
+              "Titulos identicos aos do treino foram excluidos. "
+              "Acuracia calculada SOMENTE para as cinco classes do modelo; "
               "fora_escopo e indeterminado sao ignorados, com cobertura informada. "
               "Repositorios comparados por nome base e titulos; isso NAO garante ausencia de "
               "vazamento indireto. Testar depois em projetos novos e com revisores independentes. "
@@ -113,15 +130,22 @@ def main():
     p.add_argument("--saida",type=Path,default=Path("resultados/comparacao-cega-v7-01"))
     p.add_argument("--original",type=Path,default=Path("resultados/academico-simples-01/modelo.joblib"))
     p.add_argument("--hibrido",type=Path,default=Path("resultados/classificador-hibrido-v4"))
+    p.add_argument("--permitir-sobreposicao-repo",action="store_true",
+                   help="Diagnostico exploratorio apenas: permitir repositorios do treino antigo; titulos identicos excluidos")
     args=p.parse_args()
     try:
-        resumo=avaliar(saida=args.saida,original=args.original,hibrido=args.hibrido)
+        resumo=avaliar(saida=args.saida,original=args.original,hibrido=args.hibrido,
+                       permitir_sobreposicao_repo=args.permitir_sobreposicao_repo)
     except (OSError,ValueError,sqlite3.Error) as e:
         p.error(str(e))
     print("Validacao rotulada:",resumo["total_rotulos_validacao_v5"])
     print("Cinco classes:",resumo["candidatos_cinco_classes"])
     print("Ignorados (indeterminado/fora_escopo):",resumo["ignorados_fora_das_cinco_classes"])
-    print("Avaliados sem sobreposicao aparente:",resumo["avaliados"])
+    print("Repositorios coincidentes com treino antigo:",resumo["repositorios_sobrepostos_no_lote"])
+    print("Titulos identicos ao treino antigo:",resumo["titulos_duplicados_no_treino"])
+    print("Avaliados no diagnostico:",resumo["avaliados"])
+    if resumo["sobreposicao_repo_permitida_exploratoriamente"]:
+        print("ALERTA: repositorios ja vistos no treinamento. Este resultado NAO e teste independente.")
     for nome,dados in resumo["modelos"].items():
         print(f"{nome}: {dados['acertos']}/{resumo['avaliados']} | acuracia {dados['acuracia']:.1%} | macro-F1 {dados['macro_f1']:.3f}")
     print("ATENCAO: diagnostico assistido; nao e acuracia independente.")
