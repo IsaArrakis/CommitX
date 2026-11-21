@@ -67,11 +67,10 @@ class TestModeloContextoV8(unittest.TestCase):
                         con.execute(
                             "INSERT INTO avaliacoes(id,categoria,clareza) VALUES(?,?,?)",
                             (r["id"], "docs", "claro"))
-            treino, validacao, repetidos = _carregar_rotulados(entrada, plano, banco)
-            self.assertEqual(len(treino), 2)
-            self.assertEqual(len(validacao), 1)
-            self.assertEqual(repetidos, 0)
-            self.assertEqual({r["_rotulo"] for r in treino}, {"docs"})
+            # A base sintetica possui somente docs. O treinamento deve
+            # recusar classes ausentes antes de criar arquivos de saida.
+            with self.assertRaisesRegex(ValueError, "cinco categorias"):
+                _carregar_rotulados(entrada, plano, banco)
             with self.assertRaisesRegex(ValueError, "cinco categorias"):
                 executar(saida=raiz / "v8", entrada=entrada, plano=plano, banco=banco)
             self.assertFalse((raiz / "v8").exists())
