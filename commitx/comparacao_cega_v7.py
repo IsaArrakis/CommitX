@@ -41,12 +41,13 @@ def avaliar(*, entrada=ENTRADA, plano=PLANO, banco=BANCO,
     rows, plan = abrir(entrada=entrada, plano=plano, banco=banco)
     with sqlite3.connect("file:" + Path(banco).resolve().as_posix() + "?mode=ro", uri=True) as con:
         gold = dict(con.execute("SELECT id,categoria FROM avaliacoes"))
-    candidatos = [r for r in rows
-                  if plan["repositorios"][r["repositorio"]] == "validacao"
-                  and gold.get(r["id"]) in CLASSES]
+    validacao_rotulada = [r for r in rows
+                         if plan["repositorios"][r["repositorio"]] == "validacao"
+                         and r["id"] in gold]
+    candidatos = [r for r in validacao_rotulada if gold[r["id"]] in CLASSES]
     if not candidatos:
-        raise ValueError("Ainda nao existem rotulos V5 de validacao. "
-                         "Execute revisao_git_v5 revisar --particao validacao.")
+        raise ValueError("Nao ha rotulos de cinco classes na validacao V5. "
+                         "Rotulos fora_escopo e indeterminado nao sao avaliados por estes modelos.")
     treino = carregar_treino(preparado, banco_antigo)
     titulos_treino = {" ".join(r["titulo"].casefold().split()) for r in treino}
     repos_treino = {_nome_repo(repo) for r in treino for repo in r["repositorios"]}
@@ -85,16 +86,22 @@ def avaliar(*, entrada=ENTRADA, plano=PLANO, banco=BANCO,
                              "original":a,"hibrido":b,
                              "acerto_original":int(a==real),"acerto_hibrido":int(b==real)})
     resumo={
-       "protocolo":"comparacao-V5-validacao-cega-modelos-congelados",
-       "rotulos_validacao_v5":len(candidatos),
+       "protocolo":"comparacao-V5-assistida-exploratoria-modelos-congelados",
+       "total_rotulos_validacao_v5":len(validacao_rotulada),
+       "distribuicao_validacao_total":dict(Counter(gold[r["id"]] for r in validacao_rotulada)),
+       "candidatos_cinco_classes":len(candidatos),
+       "ignorados_fora_das_cinco_classes":len(validacao_rotulada)-len(candidatos),
        "avaliados":len(seguros),
        "excluidos_por_overlap":len(linhas)-len(seguros),
+       "cobertura_avaliada_em_relacao_ao_lote":round(len(seguros)/len(validacao_rotulada),4),
        "distribuicao_reais":dict(Counter(y)),
        "modelos":resultados,
        "modelo_hibrido_melhorou":resultados["hibrido_v4"]["acertos"]>resultados["svm_original"]["acertos"],
-       "nota":"Validacao exploratoria pequena. Repositorios comparados por nome base e titulos; "
-              "isso NAO garante ausencia de vazamento indireto. "
-              "Base V5 pode ter sido assistida por IA; testar futuramente em projetos novos e rotulos independentes. "
+       "nota":"DIAGNOSTICO ASSISTIDO, NAO afericao cega independente: os rotulos deste lote "
+              "foram sugeridos por IA. Acuracia calculada SOMENTE para as cinco classes do modelo; "
+              "fora_escopo e indeterminado sao ignorados, com cobertura informada. "
+              "Repositorios comparados por nome base e titulos; isso NAO garante ausencia de "
+              "vazamento indireto. Testar depois em projetos novos e com revisores independentes. "
               "Particao teste V5 nao foi acessada.",
     }
     (saida/"resumo.json").write_text(json.dumps(resumo,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
@@ -111,8 +118,13 @@ def main():
         resumo=avaliar(saida=args.saida,original=args.original,hibrido=args.hibrido)
     except (OSError,ValueError,sqlite3.Error) as e:
         p.error(str(e))
+    print("Validacao rotulada:",resumo["total_rotulos_validacao_v5"])
+    print("Cinco classes:",resumo["candidatos_cinco_classes"])
+    print("Ignorados (indeterminado/fora_escopo):",resumo["ignorados_fora_das_cinco_classes"])
+    print("Avaliados sem sobreposicao aparente:",resumo["avaliados"])
     for nome,dados in resumo["modelos"].items():
         print(f"{nome}: {dados['acertos']}/{resumo['avaliados']} | acuracia {dados['acuracia']:.1%} | macro-F1 {dados['macro_f1']:.3f}")
+    print("ATENCAO: diagnostico assistido; nao e acuracia independente.")
     print("Resumo:",args.saida/"resumo.json")
 
 
