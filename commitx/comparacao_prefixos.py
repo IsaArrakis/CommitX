@@ -21,7 +21,7 @@ from .escrita import texto_modelo
 
 CLASSES = ("fix", "feat", "docs", "refactor", "test")
 PREFIX_RE = re.compile(
-    r"^(?P<tipo>fix|feat|docs|refactor|test)(?:\\([^()\\r\\n]+\\))?!?:\\s*\\S",
+    r"^(?P<tipo>fix|feat|docs|refactor|test)(?:\([^)]{1,80}\))?!?:[ \t]+\S",
     flags=re.I,
 )
 
