@@ -28,13 +28,13 @@ TERMS = {
     "docs": (
         r"\b(?:docs?|documentation|readme|changelog|guide|tutorial|"
         r"docstring|docstrings|comments?|typos?|spelling|grammar|"
-        r"wording|examples?|explain|clarify|descriptions?)\b",
+        r"wording|examples?|explain|clarify|descriptions?)\b"
     ),
     "refactor": (
         r"\b(?:refactor(?:ing|ed)?|restructure|reorganize|"
         r"rename|renamed|extract|extracting|simplify|cleanup|clean up|"
         r"consolidate|migrate|migration|move|rework|reformat|"
-        r"indentation|deprecated|deprecate|remove unused)\b",
+        r"indentation|deprecated|deprecate|remove unused)\b"
     ),
 }
 PATTERNS = {key: re.compile(text, re.I) for key, text in TERMS.items()}
