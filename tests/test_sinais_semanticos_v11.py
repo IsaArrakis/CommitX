@@ -15,6 +15,13 @@ class TestV11(unittest.TestCase):
         self.assertEqual(m.shape, (3, 2))
         self.assertEqual(m.tolist(), [[1., 0.], [0., 1.], [0., 0.]])
 
+    def test_regex_sao_padroes_compilados(self):
+        import re
+        for nome, pattern in PATTERNS.items():
+            self.assertIsInstance(pattern, re.Pattern, nome)
+        self.assertTrue(PATTERNS["docs"].search("Update documentation"))
+        self.assertTrue(PATTERNS["refactor"].search("Cleanup methods"))
+
     def test_nao_confunde_docs_com_code(self):
         self.assertFalse(bool(PATTERNS["docs"].search("code refactoring")))
         self.assertTrue(bool(PATTERNS["refactor"].search("Migrate framework")))
