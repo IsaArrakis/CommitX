@@ -1,0 +1,156 @@
+"""Comparacao CEGA em validacao V5, sem alterar bancos ou modelos.
+
+Exige rotulos humanos previamente registrados na particao validacao V5.
+Os resultados sao exploratorios se houver sobreposicao de repositorios/titulos
+com treino antigo; nunca utiliza particao teste V5.
+"""
+import argparse
+from collections import Counter
+import csv
+import json
+from pathlib import Path
+import sqlite3
+
+from joblib import load
+from sklearn.metrics import accuracy_score, f1_score, classification_report
+
+from .classificador_hibrido import carregar_modelo, prever_lote
+from .escrita import texto_modelo
+from .experimento_v3 import carregar_treino
+from .revisao_git_v5 import abrir, ENTRADA, PLANO, BANCO
+from .treino_real import ENTRADA as PREPARADO, BANCO as BANCO_ANTIGO
+
+CLASSES = ("fix", "feat", "docs", "refactor", "test")
+
+
+def _nome_repo(s):
+    s = str(s).strip().rstrip("/")
+    if s.startswith("git:"):
+        s = s[4:]
+    return s.split("/")[-1].casefold()
+
+
+def avaliar(*, entrada=ENTRADA, plano=PLANO, banco=BANCO,
+            preparado=PREPARADO, banco_antigo=BANCO_ANTIGO,
+            original=Path("resultados/academico-simples-01/modelo.joblib"),
+            hibrido=Path("resultados/classificador-hibrido-v4"),
+            saida=Path("resultados/comparacao-cega-v7-01"),
+            permitir_sobreposicao_repo=False):
+    saida = Path(saida)
+    if saida.exists():
+        raise FileExistsError("Saida existente: " + str(saida))
+    rows, plan = abrir(entrada=entrada, plano=plano, banco=banco)
+    with sqlite3.connect("file:" + Path(banco).resolve().as_posix() + "?mode=ro", uri=True) as con:
+        gold = dict(con.execute("SELECT id,categoria FROM avaliacoes"))
+    validacao_rotulada = [r for r in rows
+                         if plan["repositorios"][r["repositorio"]] == "validacao"
+                         and r["id"] in gold]
+    candidatos = [r for r in validacao_rotulada if gold[r["id"]] in CLASSES]
+    if not candidatos:
+        raise ValueError("Nao ha rotulos de cinco classes na validacao V5. "
+                         "Rotulos fora_escopo e indeterminado nao sao avaliados por estes modelos.")
+    treino = carregar_treino(preparado, banco_antigo)
+    titulos_treino = {" ".join(r["titulo"].casefold().split()) for r in treino}
+    repos_treino = {_nome_repo(repo) for r in treino for repo in r["repositorios"]}
+    linhas = []
+    for r in candidatos:
+        texto = texto_modelo(r["titulo"], "")
+        if not texto:
+            continue
+        colisao_repo = _nome_repo(r["repositorio"]) in repos_treino
+        colisao_titulo = " ".join(texto.casefold().split()) in titulos_treino
+        linhas.append((r, texto, colisao_repo, colisao_titulo))
+    # Titulos identicos aos do treino continuam excluidos em todos os modos.
+    seguros = [(r,t) for r,t,cr,ct in linhas
+               if not ct and (permitir_sobreposicao_repo or not cr)]
+    if not seguros:
+        rep = sum(cr for _,_,cr,_ in linhas)
+        tit = sum(ct for _,_,_,ct in linhas)
+        raise ValueError(
+            f"Nenhum exemplo elegivel: {len(linhas)} candidatos; "
+            f"{rep} com repositorio ja visto e {tit} com titulo identico ao treino. "
+            "Para diagnostico EXPLORATORIO use --permitir-sobreposicao-repo; "
+            "titulos identicos sempre permanecem excluidos."
+        )
+    x = [t for r,t in seguros]
+    y = [gold[r["id"]] for r,t in seguros]
+    bas = load(original)  # Somente joblib local e confiavel.
+    pred_bas = [str(v) for v in bas.predict(x)]
+    art = carregar_modelo(hibrido)
+    pred_hib = [p["categoria_prevista"] for p in prever_lote(art,[r["titulo"] for r,t in seguros])]
+    resultados = {}
+    for nome, pred in (("svm_original", pred_bas), ("hibrido_v4", pred_hib)):
+        resultados[nome] = {
+            "acuracia":round(float(accuracy_score(y,pred)),4),
+            "macro_f1":round(float(f1_score(y,pred,labels=list(CLASSES),average="macro",zero_division=0)),4),
+            "por_classe":classification_report(y,pred,labels=list(CLASSES),output_dict=True,zero_division=0),
+            "acertos":sum(a==b for a,b in zip(y,pred)),
+        }
+    saida.mkdir(parents=True, exist_ok=False)
+    with (saida/"previsoes.csv").open("x",encoding="utf-8",newline="") as f:
+        campos=["id","titulo","categoria_real","original","hibrido","acerto_original","acerto_hibrido"]
+        writer=csv.DictWriter(f,fieldnames=campos)
+        writer.writeheader()
+        for (r,t),a,b,real in zip(seguros,pred_bas,pred_hib,y):
+            writer.writerow({"id":r["id"],"titulo":r["titulo"],"categoria_real":real,
+                             "original":a,"hibrido":b,
+                             "acerto_original":int(a==real),"acerto_hibrido":int(b==real)})
+    resumo={
+       "protocolo":"comparacao-V5-assistida-exploratoria-modelos-congelados",
+       "repositorios_sobrepostos_no_lote":sum(cr for _,_,cr,_ in linhas),
+       "titulos_duplicados_no_treino":sum(ct for _,_,_,ct in linhas),
+       "sobreposicao_repo_permitida_exploratoriamente":bool(permitir_sobreposicao_repo),
+       "total_rotulos_validacao_v5":len(validacao_rotulada),
+       "distribuicao_validacao_total":dict(Counter(gold[r["id"]] for r in validacao_rotulada)),
+       "candidatos_cinco_classes":len(candidatos),
+       "ignorados_fora_das_cinco_classes":len(validacao_rotulada)-len(candidatos),
+       "avaliados":len(seguros),
+       "excluidos_por_overlap":len(linhas)-len(seguros),
+       "cobertura_avaliada_em_relacao_ao_lote":round(len(seguros)/len(validacao_rotulada),4),
+       "distribuicao_reais":dict(Counter(y)),
+       "modelos":resultados,
+       "modelo_hibrido_melhorou":resultados["hibrido_v4"]["acertos"]>resultados["svm_original"]["acertos"],
+       "nota":"DIAGNOSTICO ASSISTIDO, NAO afericao cega independente: os rotulos deste lote "
+              "foram sugeridos por IA. Se sobreposicao_repo_permitida_exploratoriamente for true, "
+              "os mesmos repositorios aparecem no treino antigo e na amostra avaliada; "
+              "resultados NAO medem generalizacao para repositorios novos. "
+              "Titulos identicos aos do treino foram excluidos. "
+              "Acuracia calculada SOMENTE para as cinco classes do modelo; "
+              "fora_escopo e indeterminado sao ignorados, com cobertura informada. "
+              "Repositorios comparados por nome base e titulos; isso NAO garante ausencia de "
+              "vazamento indireto. Testar depois em projetos novos e com revisores independentes. "
+              "Particao teste V5 nao foi acessada.",
+    }
+    (saida/"resumo.json").write_text(json.dumps(resumo,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+    return resumo
+
+
+def main():
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--saida",type=Path,default=Path("resultados/comparacao-cega-v7-01"))
+    p.add_argument("--original",type=Path,default=Path("resultados/academico-simples-01/modelo.joblib"))
+    p.add_argument("--hibrido",type=Path,default=Path("resultados/classificador-hibrido-v4"))
+    p.add_argument("--permitir-sobreposicao-repo",action="store_true",
+                   help="Diagnostico exploratorio apenas: permitir repositorios do treino antigo; titulos identicos excluidos")
+    args=p.parse_args()
+    try:
+        resumo=avaliar(saida=args.saida,original=args.original,hibrido=args.hibrido,
+                       permitir_sobreposicao_repo=args.permitir_sobreposicao_repo)
+    except (OSError,ValueError,sqlite3.Error) as e:
+        p.error(str(e))
+    print("Validacao rotulada:",resumo["total_rotulos_validacao_v5"])
+    print("Cinco classes:",resumo["candidatos_cinco_classes"])
+    print("Ignorados (indeterminado/fora_escopo):",resumo["ignorados_fora_das_cinco_classes"])
+    print("Repositorios coincidentes com treino antigo:",resumo["repositorios_sobrepostos_no_lote"])
+    print("Titulos identicos ao treino antigo:",resumo["titulos_duplicados_no_treino"])
+    print("Avaliados no diagnostico:",resumo["avaliados"])
+    if resumo["sobreposicao_repo_permitida_exploratoriamente"]:
+        print("ALERTA: repositorios ja vistos no treinamento. Este resultado NAO e teste independente.")
+    for nome,dados in resumo["modelos"].items():
+        print(f"{nome}: {dados['acertos']}/{resumo['avaliados']} | acuracia {dados['acuracia']:.1%} | macro-F1 {dados['macro_f1']:.3f}")
+    print("ATENCAO: diagnostico assistido; nao e acuracia independente.")
+    print("Resumo:",args.saida/"resumo.json")
+
+
+if __name__=="__main__":
+    main()
