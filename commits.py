@@ -77,6 +77,20 @@ def criar_parser():
     coleta.add_argument("repositorio", type=Path)
     coleta.add_argument("--saida", type=Path, required=True)
     coleta.add_argument("--limite", type=int, default=100)
+
+    # CommitX V12 final: modo opt-in, sem modificar a demonstracao didatica.
+    tr12 = comandos.add_parser("treinar-v12", help="Verifica paridade e salva a V12 final.")
+    tr12.add_argument("--saida", type=Path, default=Path("resultados/modelo-final-v12-01"))
+    tr12.add_argument("--entrada", type=Path, default=Path("resultados/preparacao-inicial/commits_preparados.csv"))
+    tr12.add_argument("--banco", type=Path, default=Path("resultados/rotulagem/avaliacoes.sqlite3"))
+    tr12.add_argument("--ref-com", type=Path, default=Path("resultados/experimento-v12-paridade-corrigida-01/previsoes_oof.csv"))
+    tr12.add_argument("--ref-sem", type=Path, default=Path("resultados/experimento-v12-sem-prefixos-01/previsoes_oof.csv"))
+    an12 = comandos.add_parser("analisar-v12", help="Classifica com o modelo V12 final salvo.")
+    an12.add_argument("titulo")
+    an12.add_argument("--descricao", default="", help="Usada so na revisao de escrita.")
+    an12.add_argument("--artefatos", type=Path, default=Path("resultados/modelo-final-v12-01"))
+    an12.add_argument("--modo", choices=["auto", "com_prefixo", "sem_prefixo"], default="auto")
+    an12.add_argument("--json", action="store_true")
     return parser
 
 
@@ -84,6 +98,27 @@ def main(argv=None):
     parser = criar_parser()
     args = parser.parse_args(argv)
     try:
+
+        if args.comando == "treinar-v12":
+            from commitx.v12_final import treinar_e_salvar
+            resumo = treinar_e_salvar(args.saida, args.entrada, args.banco,
+                                     args.ref_com, args.ref_sem)
+            print("Paridade V12 confirmada:", resumo["paridade_oof"])
+            print("Artefatos salvos em:", args.saida)
+            return 0
+        if args.comando == "analisar-v12":
+            from commitx.v12_final import analisar_modelo
+            resultado = {
+                "titulo": args.titulo.strip(),
+                "descricao": args.descricao.strip(),
+                "classificacao": analisar_modelo(args.artefatos, args.titulo, args.modo),
+                "escrita": revisar_escrita(args.titulo, args.descricao),
+            }
+            if args.json:
+                print(json.dumps(resultado, ensure_ascii=False, indent=2))
+            else:
+                exibir_analise(resultado)
+            return 0
         if args.comando == "coletar":
             quantidade = coletar_git(args.repositorio, args.saida, args.limite)
             print(f"{quantidade} commits exportados para {args.saida}.")
