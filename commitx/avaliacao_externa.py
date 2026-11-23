@@ -224,6 +224,16 @@ def _rotulos(saida, rows):
 
 
 def _salvar(saida, labels, rows):
+    # Validar toda a amostra ANTES de abrir ou criar qualquer arquivo.
+    ids = [r.get("id") for r in rows]
+    if (len(ids) != len(set(ids)) or
+            any(not isinstance(uid, str) or not SHA.fullmatch(uid) for uid in ids)):
+        raise ValueError("Amostra com IDs invalidos ou duplicados")
+    if any(not isinstance(uid, str) or not SHA.fullmatch(uid) or
+           categoria not in ROTULOS for uid, categoria in labels.items()):
+        raise ValueError("Rotulos com ID ou categoria invalida")
+    if not set(labels).issubset(set(ids)):
+        raise ValueError("Rotulos contem IDs fora da amostra")
     path = Path(saida) / "rotulos.csv"
     temp = path.with_suffix(".tmp")
     _csv(temp, ["id", "categoria"],
