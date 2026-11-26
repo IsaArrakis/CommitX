@@ -10,30 +10,39 @@ Etapas:
   python -m commitx.avaliacao_externa status
   python -m commitx.avaliacao_externa avaliar
 
+Para a V12, preparar-v12 e validar-v12 operam sem modelos ou previsões.
 Nunca modifica base de treinamento, modelos ou teste reservado V5.
 """
 import argparse
 from collections import Counter
 import csv
 import hashlib
+from io import StringIO
 import json
 from pathlib import Path
 import random
 import re
 import subprocess
+from urllib.parse import urlsplit
 
 from joblib import load
 from sklearn.metrics import accuracy_score, f1_score, classification_report, confusion_matrix
 
 from .escrita import texto_modelo
 from .experimento_v3 import carregar_treino
-from .treino_real import ENTRADA as BASE_ANTIGA, BANCO as BANCO_ANTIGO
+from .treino_real import ENTRADA as BASE_ANTIGA, BANCO as BANCO_ANTIGO, repositorios_da_linha
 
 CLASSES = ("fix", "feat", "docs", "refactor", "test")
 OUTRAS = ("indeterminado", "fora_escopo")
 ROTULOS = CLASSES + OUTRAS
 SAIDA = Path("resultados/avaliacao-externa-01")
 PREVISOES_ANTIGAS = Path("resultados/academico-simples-01/previsoes.csv")
+PROTOCOLO_V12 = "v12-externa-cega-v1"
+SAIDA_V12 = Path("resultados/avaliacao-externa-v12-01")
+CAMPOS_AMOSTRA = ("id", "repositorio", "titulo")
+CAMPOS_REVISAO = ("id", "categoria", "idioma", "justificativa")
+CAMPOS_EXCLUSOES = ("id", "repositorio", "titulo_sha256")
+IDIOMAS = ("pt", "en", "outro", "misto", "incerto")
 MODELOS = {
     "original": Path("resultados/academico-simples-01/modelo.joblib"),
     "pseudo": Path("resultados/academico-pseudo-02/modelo.joblib"),
@@ -53,9 +62,12 @@ def _csv(path, campos, rows):
         writer.writerows(rows)
 
 
-def _ler(path):
+def _ler(path, campos=None):
     with Path(path).open(encoding="utf-8-sig", newline="") as f:
-        return list(csv.DictReader(f))
+        leitor = csv.DictReader(f)
+        if campos is not None and tuple(leitor.fieldnames or ()) != campos:
+            raise ValueError("Colunas inesperadas em " + Path(path).name)
+        return list(leitor)
 
 
 def _norm(titulo):
@@ -102,7 +114,7 @@ def _exclusoes(arquivo_preparado, arquivo_previsoes):
 
 def _amostrar(pools, quantidade, seed=42):
     rng = random.Random(seed)
-    listas = {repo: list(commits) for repo, commits in pools.items()}
+    listas = {repo: list(pools[repo]) for repo in sorted(pools)}
     for pool in listas.values():
         rng.shuffle(pool)
     nomes = sorted(listas)
@@ -120,6 +132,41 @@ def _amostrar(pools, quantidade, seed=42):
             if len(escolhidos) == quantidade:
                 break
     return escolhidos
+
+
+def _selecionar(repos, quantidade, repos_proibidos, ids_vistos, titulos_vistos, chave_titulo=_norm):
+    pools, fontes = {}, []
+    for repo in repos:
+        repo = Path(repo).expanduser().resolve()
+        raiz = Path(_git(repo, "rev-parse", "--show-toplevel")).resolve()
+        if raiz != repo:
+            raise ValueError("Informe a raiz do repositorio: " + str(raiz))
+        remoto = _git(repo, "remote", "get-url", "origin")
+        nome = _repo_nome(remoto)
+        if not nome or nome in repos_proibidos:
+            raise ValueError("Repositorio possivelmente visto no treino ou V5: " + nome +
+                             ". Escolha outro projeto publico.")
+        if nome in pools:
+            raise ValueError("Mesmo repositorio repetido: " + nome)
+        head = _git(repo, "rev-parse", "HEAD")
+        log = _git(repo, "log", "--no-merges", "-n", "500", "--format=%H%x09%s", head, "--")
+        linhas = []
+        for item in log.split("\n"):
+            if "\t" not in item:
+                continue
+            sha, titulo = item.split("\t", 1)
+            titulo = titulo.strip()
+            chave = chave_titulo(titulo)
+            if not SHA.fullmatch(sha) or not chave or sha in ids_vistos or chave in titulos_vistos:
+                continue
+            linhas.append({"id": sha, "repositorio": nome, "titulo": titulo})
+        pools[nome] = linhas
+        fontes.append({"nome": nome, "remoto": remoto, "head": head,
+                       "elegiveis": len(linhas)})
+    escolhidos = _amostrar(pools, quantidade)
+    if len(escolhidos) < quantidade:
+        raise ValueError(f"Apenas {len(escolhidos)} candidatos novos; solicite menos ou clone mais repositorios")
+    return escolhidos, sorted(fontes, key=lambda fonte: fonte["nome"])
 
 
 def preparar(repos, *, saida=SAIDA, quantidade=45, preparado=BASE_ANTIGA,
@@ -142,37 +189,7 @@ def preparar(repos, *, saida=SAIDA, quantidade=45, preparado=BASE_ANTIGA,
         dados = json.loads(plano_v5.read_text(encoding="utf-8"))
         repos_proibidos.update(_repo_nome(x) for x in dados.get("repositorios", {}))
     ids_vistos, titulos_vistos = _exclusoes(preparado, previsoes_antigas)
-    pools, fontes = {}, []
-    for repo in repos:
-        repo = Path(repo).expanduser().resolve()
-        raiz = Path(_git(repo, "rev-parse", "--show-toplevel")).resolve()
-        if raiz != repo:
-            raise ValueError("Informe a raiz do repositorio: " + str(raiz))
-        remoto = _git(repo, "remote", "get-url", "origin")
-        nome = _repo_nome(remoto)
-        if not nome or nome in repos_proibidos:
-            raise ValueError("Repositorio possivelmente visto no treino ou V5: " + nome +
-                             ". Escolha outro projeto publico.")
-        if nome in pools:
-            raise ValueError("Mesmo repositorio repetido: " + nome)
-        log = _git(repo, "log", "--no-merges", "-n", "500", "--format=%H%x09%s")
-        linhas = []
-        for item in log.splitlines():
-            if "\t" not in item:
-                continue
-            sha, titulo = item.split("\t", 1)
-            titulo = titulo.strip()
-            if not SHA.fullmatch(sha) or not _norm(titulo):
-                continue
-            if sha in ids_vistos or _norm(titulo) in titulos_vistos:
-                continue
-            linhas.append({"id": sha, "repositorio": nome, "titulo": titulo})
-        pools[nome] = linhas
-        fontes.append({"nome": nome, "remoto": remoto, "head": _git(repo, "rev-parse", "HEAD"),
-                       "elegiveis": len(linhas)})
-    escolhidos = _amostrar(pools, quantidade)
-    if len(escolhidos) < quantidade:
-        raise ValueError(f"Apenas {len(escolhidos)} candidatos novos; solicite menos ou clone mais repositorios")
+    escolhidos, fontes = _selecionar(repos, quantidade, repos_proibidos, ids_vistos, titulos_vistos)
     saida.mkdir(parents=True)
     amostra = saida / "amostra.csv"
     _csv(amostra, ["id", "repositorio", "titulo"], escolhidos)
@@ -204,10 +221,170 @@ def _abrir(saida):
     manifesto = json.loads((saida / "manifesto.json").read_text(encoding="utf-8"))
     if hashlib.sha256(arquivo.read_bytes()).hexdigest() != manifesto["amostra_sha256"]:
         raise ValueError("Amostra mudou; interrompido")
-    linhas = _ler(arquivo)
+    campos = CAMPOS_AMOSTRA if manifesto.get("protocolo") == PROTOCOLO_V12 else None
+    linhas = _ler(arquivo, campos)
     if len(linhas) != manifesto["quantidade"] or len({r["id"] for r in linhas}) != len(linhas):
         raise ValueError("Amostra adulterada ou duplicada")
     return linhas, manifesto
+
+
+def _hash(dados):
+    return hashlib.sha256(dados).hexdigest()
+
+
+def _chave_titulo(titulo):
+    normalizado = _norm(titulo)
+    return _hash(normalizado.encode("utf-8")) if normalizado else ""
+
+
+def _origem_sem_credenciais(origem):
+    """Normaliza URLs de Git e identificadores históricos de repositórios."""
+    if "://" in origem:
+        url = urlsplit(origem)
+        origem = (url.hostname or "") + url.path
+    elif ":" in origem:
+        host, caminho = origem.split(":", 1)
+        origem = host.rsplit("@", 1)[-1] + "/" + caminho
+    origem = origem.strip().lower().strip("/").removesuffix(".git")
+    if not re.fullmatch(r"[a-z0-9_.-]+(?:/[a-z0-9_.-]+)*", origem):
+        raise ValueError("Origem Git inválida no inventário ou no remoto.")
+    return origem
+
+
+def _inventario(historicos):
+    exclusoes, fontes = set(), []
+    for caminho in map(Path, historicos):
+        dados = caminho.read_bytes()
+        leitor = csv.DictReader(StringIO(dados.decode("utf-8-sig"), newline=""))
+        if not set(CAMPOS_AMOSTRA).issubset(leitor.fieldnames or []):
+            raise ValueError("Inventário histórico exige id, repositorio e titulo.")
+        quantidade = 0
+        for row in leitor:
+            uid = (row["id"] or "").strip().lower()
+            repositorios = repositorios_da_linha(row["repositorio"])
+            titulo = _chave_titulo(row["titulo"])
+            if not SHA.fullmatch(uid) or not repositorios or not titulo:
+                raise ValueError("Inventário histórico contém SHA, origem ou título incompleto.")
+            for repositorio in repositorios:
+                exclusoes.add((uid, _origem_sem_credenciais(repositorio), titulo))
+            quantidade += 1
+        if not quantidade:
+            raise ValueError("Inventário histórico vazio.")
+        fontes.append({"arquivo": caminho.name, "sha256": _hash(dados), "linhas": quantidade})
+    if not fontes:
+        raise ValueError("Informe um inventário histórico para verificar sobreposição.")
+    return sorted(exclusoes), fontes
+
+
+def preparar_v12(repos, *, historicos, saida=SAIDA_V12, quantidade=180):
+    """Congela a seleção e cria um formulário de revisão sem previsões."""
+    if not 150 <= quantidade <= 200:
+        raise ValueError("A amostra V12 deve ter entre 150 e 200 commits.")
+    if len(repos) < 5:
+        raise ValueError("Informe pelo menos cinco repositórios independentes.")
+    saida = Path(saida)
+    if saida.exists() or saida.is_symlink():
+        raise FileExistsError("Pasta de saída já existe.")
+    exclusoes, historico = _inventario(historicos)
+    ids, origens, titulos = map(set, zip(*exclusoes))
+    rows, fontes = _selecionar(
+        repos, quantidade, {_repo_nome(origem) for origem in origens}, ids, titulos, _chave_titulo,
+    )
+    if len({r["repositorio"] for r in rows}) < 5:
+        raise ValueError("Menos de cinco repositórios com exemplos elegíveis na amostra.")
+    for fonte in fontes:
+        fonte["remoto"] = _origem_sem_credenciais(fonte["remoto"])
+
+    saida.mkdir(parents=True)
+    amostra = saida / "amostra.csv"
+    inventario = saida / "exclusoes.csv"
+    _csv(amostra, CAMPOS_AMOSTRA, rows)
+    _csv(inventario, CAMPOS_EXCLUSOES, [dict(zip(CAMPOS_EXCLUSOES, item)) for item in exclusoes])
+    _csv(saida / "rotulos.csv", CAMPOS_REVISAO, [{"id": r["id"]} for r in rows])
+    manifesto = {
+        "protocolo": PROTOCOLO_V12, "quantidade": len(rows), "origem": fontes,
+        "amostra_sha256": _hash(amostra.read_bytes()), "historico": historico,
+        "exclusoes_sha256": _hash(inventario.read_bytes()), "semente": 42,
+        "categorias_permitidas": list(ROTULOS), "idiomas_permitidos": list(IDIOMAS),
+    }
+    _json(saida / "manifesto.json", manifesto)
+    return manifesto
+
+
+def validar_v12(saida=SAIDA_V12):
+    """Verifica a amostra e a revisão. O resultado não contém previsões."""
+    saida = Path(saida)
+    rows, manifesto = _abrir(saida)
+    if manifesto.get("protocolo") != PROTOCOLO_V12 or not 150 <= len(rows) <= 200:
+        raise ValueError("Amostra incompatível com o protocolo V12.")
+    inventario = saida / "exclusoes.csv"
+    if _hash(inventario.read_bytes()) != manifesto["exclusoes_sha256"]:
+        raise ValueError("Inventário de exclusões alterado.")
+    exclusoes = _ler(inventario, CAMPOS_EXCLUSOES)
+    if not exclusoes:
+        raise ValueError("Inventário de exclusões vazio.")
+    ids = {r["id"] for r in exclusoes}
+    repos = {_repo_nome(r["repositorio"]) for r in exclusoes}
+    titulos = {r["titulo_sha256"] for r in exclusoes}
+    origens = {f["nome"] for f in manifesto["origem"]}
+    por_id = {r["id"]: r for r in rows}
+    chaves = set()
+    for r in rows:
+        titulo = _chave_titulo(r["titulo"])
+        if (None in r or not SHA.fullmatch(r["id"] or "") or r["repositorio"] not in origens or
+                not titulo or titulo in chaves):
+            raise ValueError("SHA, origem ou título duplicado/inválido na amostra.")
+        if r["id"] in ids or _repo_nome(r["repositorio"]) in repos or titulo in titulos:
+            raise ValueError("Sobreposição com o inventário histórico.")
+        chaves.add(titulo)
+    if len({r["repositorio"] for r in rows}) < 5:
+        raise ValueError("Menos de cinco repositórios na amostra.")
+
+    dados = (saida / "rotulos.csv").read_bytes()
+    leitor = csv.DictReader(StringIO(dados.decode("utf-8-sig"), newline=""))
+    if tuple(leitor.fieldnames or []) != CAMPOS_REVISAO:
+        raise ValueError("Use somente id, categoria, idioma e justificativa na revisão cega.")
+    revisados, vistos = {}, set()
+    for r in leitor:
+        uid = r["id"]
+        if uid not in por_id or uid in vistos or None in r or None in r.values():
+            raise ValueError("Registro de revisão inválido, duplicado ou fora da amostra.")
+        vistos.add(uid)
+        categoria, idioma, justificativa = (r[c].strip() for c in CAMPOS_REVISAO[1:])
+        if not (categoria or idioma or justificativa):
+            continue
+        if categoria not in ROTULOS or idioma not in IDIOMAS or not justificativa:
+            raise ValueError("Preencha categoria, idioma e justificativa válidos para cada revisão.")
+        revisados[uid] = (categoria, idioma)
+    elegiveis = {uid: par for uid, par in revisados.items() if par[0] in CLASSES}
+    contagens = Counter(c for c, _ in revisados.values())
+    origens_elegiveis = {por_id[uid]["repositorio"] for uid in elegiveis}
+    faltam = len(rows) - len(revisados)
+    bloqueios = []
+    if faltam:
+        bloqueios.append("revisao_incompleta")
+    if len(elegiveis) < 120 or any(contagens[c] < 15 for c in CLASSES):
+        bloqueios.append("suporte_insuficiente_nas_cinco_classes")
+    if len(origens_elegiveis) < 5:
+        bloqueios.append("repositorios_elegiveis_insuficientes")
+    por_idioma = {}
+    for idioma in IDIOMAS:
+        grupo = {uid: c for uid, (c, l) in elegiveis.items() if l == idioma}
+        contagem = Counter(grupo.values())
+        n_repos = len({por_id[uid]["repositorio"] for uid in grupo})
+        por_idioma[idioma] = {
+            "elegiveis": len(grupo), "repositorios": n_repos, "categorias": dict(contagem),
+            "suporte_para_metricas": idioma in ("pt", "en") and len(grupo) >= 30 and
+            n_repos >= 5 and all(contagem[c] >= 3 for c in CLASSES),
+        }
+    return {
+        "protocolo": PROTOCOLO_V12, "amostra_sha256": manifesto["amostra_sha256"],
+        "gabarito_sha256": _hash(dados) if not faltam else None,
+        "origem": manifesto["origem"], "total": len(rows), "faltam": faltam,
+        "elegiveis": len(elegiveis), "categorias": {c: contagens[c] for c in ROTULOS},
+        "por_idioma": por_idioma, "bloqueios": bloqueios,
+        "gabarito_validado": not bloqueios,
+    }
 
 
 def _rotulos(saida, rows):
@@ -245,7 +422,9 @@ def _salvar(saida, labels, rows):
 def rotular(*, saida=SAIDA, tamanho=15, limite=45, input_fn=input, output_fn=print):
     if not 1 <= tamanho <= 30 or not 1 <= limite <= 200:
         raise ValueError("Tamanho 1..30 e limite 1..200")
-    rows, _ = _abrir(saida)
+    rows, manifesto = _abrir(saida)
+    if manifesto.get("protocolo") == PROTOCOLO_V12:
+        raise ValueError("Preencha a revisão cega V12 em rotulos.csv e use validar-v12.")
     labels = _rotulos(saida, rows)
     adicionados = 0
     while adicionados < limite:
@@ -289,7 +468,9 @@ def rotular(*, saida=SAIDA, tamanho=15, limite=45, input_fn=input, output_fn=pri
 
 
 def status(saida=SAIDA):
-    rows, _ = _abrir(saida)
+    rows, manifesto = _abrir(saida)
+    if manifesto.get("protocolo") == PROTOCOLO_V12:
+        return validar_v12(saida)
     labels = _rotulos(saida, rows)
     return {"total": len(rows), "rotulados": len(labels),
             "faltam": len(rows)-len(labels), "categorias": dict(Counter(labels.values()))}
@@ -298,6 +479,8 @@ def status(saida=SAIDA):
 def avaliar(*, saida=SAIDA, modelos=None):
     saida = Path(saida)
     rows, manifest = _abrir(saida)
+    if manifest.get("protocolo") == PROTOCOLO_V12:
+        raise ValueError("O avaliador histórico não usa a V12. Consulte o protocolo externo V12.")
     labels = _rotulos(saida, rows)
     if len(labels) != len(rows):
         raise ValueError(f"Amostra incompleta: {len(labels)}/{len(rows)}. Termine rotular primeiro.")
@@ -380,9 +563,21 @@ def main(argv=None):
     s.add_argument("--saida", type=Path, default=SAIDA)
     a = sub.add_parser("avaliar", help="Avaliar modelos congelados uma unica vez")
     a.add_argument("--saida", type=Path, default=SAIDA)
+    v = sub.add_parser("preparar-v12", help="Congelar amostra externa e gerar uma revisão cega V12")
+    v.add_argument("--repos", type=Path, nargs="+", required=True)
+    v.add_argument("--historicos", type=Path, nargs="+", required=True)
+    v.add_argument("--quantidade", type=int, default=180)
+    v.add_argument("--saida", type=Path, default=SAIDA_V12)
+    v_check = sub.add_parser("validar-v12", help="Validar a revisão externa V12, sem previsões")
+    v_check.add_argument("--saida", type=Path, default=SAIDA_V12)
     args = parser.parse_args(argv)
     try:
-        if args.comando == "preparar":
+        if args.comando == "preparar-v12":
+            result = preparar_v12(args.repos, historicos=args.historicos, saida=args.saida,
+                                 quantidade=args.quantidade)
+        elif args.comando == "validar-v12":
+            result = validar_v12(args.saida)
+        elif args.comando == "preparar":
             result = preparar(args.repos, saida=args.saida, quantidade=args.quantidade)
         elif args.comando == "rotular":
             result = {"rotulados": rotular(saida=args.saida, tamanho=args.tamanho,
