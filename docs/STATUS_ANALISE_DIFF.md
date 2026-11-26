@@ -2,23 +2,17 @@
 
 ## Etapa concluída
 
-Etapa 5 concluída na branch `feat/analise-diff-semantico`. A função `comparar_commit` recebe a saída de `analisar_modelo` da V12 e a de `analisar_diff`. O relatório traz o status, a categoria textual, as categorias indicadas pelo diff, uma explicação, as evidências e os avisos. A previsão original da V12 continua disponível ao chamador.
+Etapa 6 concluída na branch `feat/analise-diff-semantico`. A rota `POST /api/git/analisar` mantém os campos `git`, `analise` e `sinais`. O novo campo `analise_codigo` contém `diff`, com o resultado de `analisar_diff`, e `comparacao`, com o relatório de `comparar_commit`.
 
-## Critérios de comparação
+A V12 classifica a partir do título. A descrição alimenta a revisão de escrita. O analisador do diff usa a leitura Git mesmo quando a previsão textual está indisponível. Nesse caso, a API retorna `analise: null`, os indícios disponíveis e uma comparação inconclusiva com aviso. Uma falha na extração semântica retorna `analise_codigo.diff: null` e uma explicação. Referências inválidas ou ilegíveis retornam HTTP 400 com erro em JSON.
 
-- `compativel` indica que a previsão textual coincide com o único indício de categoria do diff.
-- `possivel_divergencia` indica que o único indício de categoria do diff difere da previsão textual.
-- `inconclusivo` cobre abstenção da V12, ausência de indícios, mistura ou ambiguidade, prévia truncada, leitura parcial e evidência de implementação obtida com cobertura insuficiente. As categorias e evidências disponíveis continuam no relatório.
+## Limites da análise
 
-A comparação considera o campo `categoria_sugerida` da V12. A evidência vem do diff e de seus caminhos. Os indícios de documentação e testes dependem de convenções de caminhos. Os de implementação dependem dos trechos Python analisáveis na prévia. A intenção e a equivalência funcional exigem revisão.
+O backend consulta o repositório configurado na inicialização, por meio do leitor Git existente. O servidor escuta em `127.0.0.1`. O limite para o corpo JSON é de 8.192 bytes e a prévia do patch tem até 6.000 caracteres. Ausência de indícios, ambiguidade e truncamento podem tornar a comparação inconclusiva. A equivalência funcional exige revisão.
 
 ## Arquivos e verificações
 
-- `commitx/comparador_commit.py` implementa a comparação.
-- `testes/test_comparador_commit.py` cobre concordância, possível divergência, ambiguidade, mistura, ausência de evidências, cobertura insuficiente e preservação das entradas.
-- `docs/STATUS_ANALISE_DIFF.md` registra o contrato e os limites da etapa.
-- `.venv/bin/python -B -m unittest testes.test_comparador_commit testes.test_analise_diff testes.test_leitor_diff` passou nos 48 testes. `git diff --check` passou.
-
-## Próximo passo
-
-Avaliar os resultados em exemplos revisados manualmente antes de uma futura integração ao site.
+- `commitx_site_git_v10.py` integra a análise semântica à rota Git.
+- `testes/test_api_git.py` verifica a rota em loopback com commits temporários. O teste de compatibilidade simula a previsão V12 e verifica que a chamada ao modelo recebe apenas o título como conteúdo. O teste de modelos ausentes usa a chamada real a um diretório vazio.
+- `docs/STATUS_ANALISE_DIFF.md` registra o contrato e as verificações.
+- `python -B -m unittest testes.test_api_git testes.test_comparador_commit testes.test_analise_diff testes.test_leitor_diff` passou nos 54 testes. `git diff --check` passou.

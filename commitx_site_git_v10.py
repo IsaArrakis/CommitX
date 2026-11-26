@@ -24,6 +24,8 @@ if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
 # Importacao real do projeto; falhas de dependencia sao mostradas no console.
+from commitx.analise_diff import analisar_diff
+from commitx.comparador_commit import comparar_commit
 from commitx.escrita import revisar_escrita
 from commitx.leitor_diff import analisar_commit
 from commitx.v12_final import (
@@ -716,15 +718,45 @@ def criar_handler(artefatos: Path, repositorio: Path):
                     referencia = dados.get("commit", "HEAD") if isinstance(dados, dict) else None
                     if not isinstance(referencia, str) or not re.fullmatch(r"(?:HEAD(?:~[0-9]{1,3})?|[0-9a-fA-F]{7,40})", referencia):
                         raise ValueError("Use HEAD, HEAD~1 ou SHA hexadecimal de 7 a 40 caracteres.")
-                    git = analisar_commit(repositorio, referencia, max_chars=6000)
-                    resultado = None
                     try:
-                        resultado = classificar({"titulo": git["titulo"], "descricao": git["descricao"], "modo": "auto"}, artefatos)
-                    except (FileNotFoundError, ValueError, OSError) as erro:
-                        print("[Aviso V12 durante leitura Git]", str(erro), file=sys.stderr)
-                    categoria = (resultado or {}).get("classificacao", {}).get("categoria_sugerida")
+                        git = analisar_commit(repositorio, referencia, max_chars=6000)
+                    except (ValueError, OSError):
+                        self._json(400, {"erro": (
+                            "Não foi possível ler o commit. "
+                            "Verifique a referência e o repositório Git configurado."
+                        )})
+                        return
+
+                    resultado = None
+                    aviso_v12 = None
+                    try:
+                        resultado = classificar({
+                            "titulo": git["titulo"], "descricao": git["descricao"], "modo": "auto",
+                        }, artefatos)
+                    except FileNotFoundError:
+                        aviso_v12 = "Os modelos locais da V12 estão indisponíveis."
+                    except Exception:
+                        aviso_v12 = "A classificação textual da V12 falhou para este commit."
+
+                    classificacao = resultado["classificacao"] if resultado else {}
+                    categoria = classificacao.get("categoria_sugerida")
+                    diff = None
+                    try:
+                        diff = analisar_diff(git)
+                        comparacao = comparar_commit(classificacao, diff)
+                    except Exception:
+                        mensagem = "A análise do código ou a comparação falhou para este commit."
+                        comparacao = {
+                            "status": "inconclusivo", "categoria_textual": categoria,
+                            "categorias_codigo": [], "explicacao": mensagem,
+                            "evidencias": [], "avisos": [mensagem],
+                        }
+                    if aviso_v12:
+                        comparacao["avisos"].append(aviso_v12)
+                        comparacao["explicacao"] = aviso_v12
                     self._json(200, {"git": git, "analise": resultado,
-                                     "sinais": classificar_alteracoes(git["arquivos"], categoria)})
+                                     "sinais": classificar_alteracoes(git["arquivos"], categoria),
+                                     "analise_codigo": {"diff": diff, "comparacao": comparacao}})
                 elif rota == "/api/comparar":
                     # Mesma entrada, pipeline real de cada modo: nenhuma predicao ficticia.
                     com = classificar({**dados, "modo": "com_prefixo"}, artefatos)["classificacao"]
@@ -736,7 +768,7 @@ def criar_handler(artefatos: Path, repositorio: Path):
                 self._json(400, {"erro": str(erro)})
             except Exception as erro:
                 # Mostrar detalhes somente no terminal, nao ao navegador.
-                print(f"[Erro de classificacao] {type(erro).__name__}: {erro}", file=sys.stderr)
+                print(f"[Erro de classificacao] {type(erro).__name__}", file=sys.stderr)
                 self._json(500, {"erro": "Falha interna. Verifique o terminal do CommitX."})
     return Handler
 
