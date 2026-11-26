@@ -2,15 +2,26 @@
 
 ## Etapa concluída
 
-Etapa 7 concluída na branch `feat/analise-diff-semantico`. Para abrir a nova interface, execute `python commitx_site_git_v12.py --repositorio .` e acesse `http://127.0.0.1:8765`. O arquivo da V10 permanece disponível como ponto de entrada separado. As duas versões usam o backend da V10.
+Etapa 8 concluída na branch `feat/analise-diff-semantico`. A apresentação usa `.venv/bin/python commitx_site_git_v12.py --repositorio .` e o endereço local `http://127.0.0.1:8765`. O README explica como iniciar o site, selecionar o repositório e usar artefatos V12 locais.
 
-A interface mantém a classificação por título, a descrição opcional, a comparação dos modelos e o histórico recolhível. Na seção Git, o relatório mostra a mensagem e a categoria prevista pela V12, as evidências e seus arquivos, o estado da comparação com uma explicação curta e a lista de arquivos alterados. O diff abre em uma seção recolhível e indica quando a prévia foi truncada.
+## Validação
 
-Quando os artefatos locais estão ausentes, a leitura do commit e seus indícios continuam disponíveis. Os dados do Git entram na página como texto. O servidor segue restrito a `127.0.0.1` e ao repositório configurado na inicialização.
+| Verificação | Aprovados | Reprovados |
+| --- | ---: | ---: |
+| `.venv/bin/python -m unittest discover -s testes -v` | 189 | 0 |
+| `.venv/bin/python -m unittest discover -s tests -v` | 75 | 0 |
+| `.venv/bin/python -m unittest -v testes.test_leitor_diff testes.test_analise_diff testes.test_comparador_commit testes.test_api_git` | 57 | 0 |
 
-## Verificações
+A execução focada repete parte da suíte `testes/`. A primeira execução dessa suíte encontrou 4 falhas e 16 erros de ambiente porque a `.venv` não acessava o scikit-learn disponível no sistema. O ambiente virtual passou a usar os pacotes já instalados e a nova execução passou. O código da aplicação permaneceu intacto nesta etapa.
 
-- `python -B -m unittest testes.test_api_git testes.test_comparador_commit testes.test_analise_diff testes.test_leitor_diff` passou nos 54 testes.
-- Os testes no Chromium exercitaram a classificação, a comparação dos modelos, os três estados do relatório Git, o truncamento, a abertura e o fechamento das seções, o histórico e os erros de entrada. Usaram commits temporários reais, previsões simuladas e o cenário real de artefatos ausentes.
-- O Chromium exibiu marcação HTML de um commit como texto no relatório, no histórico e no diff. Durante a verificação, todas as requisições ficaram no servidor local e o repositório temporário manteve a mesma referência e a árvore limpa.
+- Os commits temporários cobriram documentação, testes, tratamento de erro, funcionalidade nova, possível refatoração, alterações mistas e código ambíguo. A API também foi verificada com prévia truncada, referência inválida, commit vazio, repositório sem commits e modelos ausentes.
+- A validação HTTP e no Chromium cobriu `GET /api/status` e `POST /api/classificar`, `POST /api/comparar` e `POST /api/git/analisar`. Um teste verifica que as rotas repassam as previsões da V12 e seus modos. A comparação Git entre a base `4866673` e esta etapa confirmou a integridade de `commitx/v12_final.py` e dos arquivos rastreados de dados e modelos.
+- Um teste HTTP analisou um commit contendo uma instrução Python que criaria um arquivo. A API retornou os indícios e o arquivo não foi criado. A referência e a árvore do repositório temporário permaneceram intactas.
+- O Chromium foi verificado com larguras de 390 e 1.440 pixels. A interface manteve fundo branco, texto legível e seções recolhíveis. Marcação presente em um commit apareceu como texto no relatório, no histórico e no diff.
 - `git diff --check` e `git diff --cached --check` passaram.
+
+## Limites da validação
+
+Os artefatos finais da V12 estavam ausentes neste ambiente. Os testes de integração usaram respostas simuladas para verificar a passagem da previsão e a resposta real da aplicação para artefatos ausentes. Os testes próprios da V12 também passaram. A validação da apresentação não mediu a acurácia do analisador. As verificações de indícios se basearam nas alterações conhecidas dos commits temporários.
+
+Documentação e testes dependem de convenções de caminho. Os indícios de implementação dependem da cobertura dos trechos Python analisáveis. Um diff truncado, alterações ambíguas ou indícios insuficientes podem deixar a comparação inconclusiva. A equivalência funcional, inclusive em refatorações, exige revisão.

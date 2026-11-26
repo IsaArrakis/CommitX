@@ -66,7 +66,25 @@ O leitor experimental consulta um **repositório Git local**, apresenta a mensag
 .venv/bin/python -m commitx.leitor_diff --repositorio . --commit 'HEAD~1' --json
 ```
 
-Veja o tutorial [Entendendo o git diff](docs/ETAPA_1_GIT_DIFF.md). Esta é apenas a primeira fase da pesquisa: o classificador textual ainda não usa o diff.
+Veja o tutorial [Entendendo o git diff](docs/ETAPA_1_GIT_DIFF.md).
+
+## Apresentar a análise Git no site
+
+Na raiz do projeto, com o ambiente virtual preparado, execute:
+
+```bash
+.venv/bin/python commitx_site_git_v12.py --repositorio .
+```
+
+Abra [o site local](http://127.0.0.1:8765), expanda **Analisar um commit existente do Git** e informe `HEAD` ou um SHA do repositório escolhido na inicialização. O relatório mostra a mensagem, a categoria textual, os indícios com os arquivos associados e o diff recolhível. Ao iniciar, use `--repositorio /caminho/do/repositorio` para selecionar outro repositório local.
+
+A V12 recebe apenas o título. O site procura os artefatos locais em `resultados/modelo-final-v12-01/`. Se já tiver artefatos confiáveis em outro diretório, indique-o com `--artefatos /caminho/dos/artefatos`. Quando os artefatos estão ausentes, é possível demonstrar a leitura Git e os indícios. A comparação com a categoria textual fica inconclusiva.
+
+- Documentação e testes são identificados por convenções de caminho. Os sinais de implementação cobrem trechos Python analisáveis.
+- O servidor limita a prévia a 6.000 caracteres. Quando a prévia é truncada, a comparação fica inconclusiva. Para merges, o leitor usa o primeiro pai.
+- Compatibilidade indica concordância entre a categoria textual e os indícios observados. A intenção do autor e os efeitos da mudança exigem revisão. As previsões da V12 servem à comparação. Uma medida de acurácia do analisador exige uma avaliação independente.
+
+Consulte o [status da análise semântica de diffs](docs/STATUS_ANALISE_DIFF.md).
 
 ## Avaliar e gerar relatórios
 
@@ -145,6 +163,13 @@ O histórico de um CommitX recém-criado tende a ser pequeno e pouco variado. Es
 
 ```bash
 .venv/bin/python -m unittest discover -s testes -v
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+Para verificar isoladamente o leitor, o analisador, o comparador e a API Git:
+
+```bash
+.venv/bin/python -m unittest -v testes.test_leitor_diff testes.test_analise_diff testes.test_comparador_commit testes.test_api_git
 ```
 
 A avaliação é exploratória e não possui teste externo independente. Resultados sintéticos não demonstram desempenho em repositórios reais. Ajustes escolhidos após observar os erros precisam de avaliação posterior em dados independentes. As métricas de classificação não avaliam clareza.

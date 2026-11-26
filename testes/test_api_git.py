@@ -51,10 +51,10 @@ class TestApiGit(unittest.TestCase):
         self.git("commit", "-qm", "docs: atualizar guia", "-m", "Descrição de exemplo")
         return self.git("rev-parse", "HEAD")
 
-    def post(self, dados):
+    def post(self, dados, rota="/api/git/analisar"):
         conexao = HTTPConnection("127.0.0.1", self.porta, timeout=5)
         try:
-            conexao.request("POST", "/api/git/analisar", json.dumps(dados),
+            conexao.request("POST", rota, json.dumps(dados),
                             {"Content-Type": "application/json"})
             resposta = conexao.getresponse()
             self.assertEqual(resposta.getheader("Content-Type"), "application/json; charset=utf-8")
@@ -126,6 +126,58 @@ class TestApiGit(unittest.TestCase):
         self.assertEqual(analise["diff"]["indicios"]["categoria"], "docs")
         self.assertEqual(analise["comparacao"]["status"], "inconclusivo")
         self.assertIn("indisponíveis", analise["comparacao"]["explicacao"])
+
+    def test_repositorio_sem_commits(self):
+        status, dados = self.post({"commit": "HEAD"})
+        self.assertEqual(status, 400)
+        self.assertIn("Verifique a referência", dados["erro"])
+
+    def test_codigo_do_commit_nao_e_executado(self):
+        sentinela = self.repo.parent / "sentinela"
+        (self.repo / "modulo.py").write_text(
+            "from pathlib import Path\n"
+            f"Path({str(sentinela)!r}).write_text('executado')\n"
+            "def exemplo():\n    return 1\n",
+            encoding="utf-8",
+        )
+        self.git("add", "modulo.py")
+        self.git("commit", "-qm", "feat: adicionar módulo")
+        sha = self.git("rev-parse", "HEAD")
+        status, dados = self.post({"commit": sha})
+        self.assertEqual(status, 200)
+        analise = dados["analise_codigo"]
+        self.assertEqual(analise["diff"]["indicios_codigo"]["candidatas"], ["feat"])
+        self.assertIn("declaracao", [e["tipo"] for e in analise["comparacao"]["evidencias"]])
+        self.assertFalse(sentinela.exists())
+        self.assertEqual(self.git("rev-parse", "HEAD"), sha)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_classificacao_git_e_rotas_textuais_repassam_a_v12(self):
+        sha = self.commit()
+        titulo = "docs: atualizar guia"
+        descricao = "Descrição de exemplo"
+        entrada = {"titulo": titulo, "descricao": descricao}
+        resultados = {
+            "auto": {"categoria_sugerida": "docs", "modo": "com_prefixo", "margem_svm": 0.4},
+            "com_prefixo": {"categoria_sugerida": "docs", "modo": "com_prefixo"},
+            "sem_prefixo": {"categoria_sugerida": "test", "modo": "sem_prefixo"},
+        }
+
+        def classificar(_artefatos, _titulo, modo):
+            return resultados[modo]
+
+        with patch("commitx_site_git_v10.analisar_modelo", side_effect=classificar) as modelo:
+            status_git, dados_git = self.post({"commit": sha})
+            status_texto, dados_texto = self.post(entrada, "/api/classificar")
+            status_comparar, comparacao = self.post(entrada, "/api/comparar")
+
+        self.assertEqual((status_git, status_texto, status_comparar), (200, 200, 200))
+        self.assertEqual(dados_git["analise"], dados_texto)
+        self.assertEqual(dados_texto["classificacao"], resultados["auto"])
+        self.assertEqual(comparacao, {modo: resultados[modo] for modo in ("com_prefixo", "sem_prefixo")})
+        self.assertEqual([chamada.args for chamada in modelo.call_args_list], [
+            (self.artefatos, titulo, modo) for modo in ("auto", "auto", "com_prefixo", "sem_prefixo")
+        ])
 
     def test_falha_semantica_preserva_campos_anteriores(self):
         self.commit()
