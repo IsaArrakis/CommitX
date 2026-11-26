@@ -61,6 +61,11 @@ textarea {min-height: 72px; resize: vertical}
 .summary-caret {margin-left: 8px}
 .toolbar, .git-toolbar {display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-top: 14px}
 .mode-field, .git-input {width: min(100%, 270px)}
+.git-ast-option {
+  display: flex; align-items: center; gap: 8px; width: fit-content;
+  margin: 8px 0 0; min-height: 36px; color: var(--sub); font-weight: 400;
+}
+.git-ast-option input {width: 1rem; height: 1rem; margin: 0; flex: none; accent-color: var(--navy)}
 .actions, .samples {display: flex; flex-wrap: wrap; align-items: center; gap: 8px}
 .samples {margin-top: 14px; font-size: 14px}
 button {
@@ -133,6 +138,7 @@ th, td {padding: 8px; border-bottom: 1px solid var(--line)}
       <div class="git-input"><label for="git-ref">Commit (HEAD ou SHA)</label><input id="git-ref" type="text" value="HEAD" maxlength="50" spellcheck="false" placeholder="HEAD"></div>
       <button type="button" class="primary" id="git-analisar">Analisar commit Git</button>
     </div>
+    <label class="git-ast-option"><input id="git-incluir-ast" type="checkbox"> Incluir análise estrutural de arquivos Python</label>
     <div id="git-report" class="git-report" hidden aria-live="polite">
       <h3>Alterações encontradas</h3>
       <div id="git-summary"></div>
@@ -146,6 +152,9 @@ th, td {padding: 8px; border-bottom: 1px solid var(--line)}
       <h4>Arquivos alterados</h4>
       <div id="git-files"></div>
       <details id="git-diff-toggle"><summary>Ver trecho do diff</summary><pre id="git-diff"></pre></details>
+      <details id="git-ast-toggle" hidden><summary id="git-ast-heading">Evidências estruturais</summary>
+        <div id="git-ast-result" class="optional-body"></div>
+      </details>
     </div>
     <p id="git-error" class="inline-error" role="alert" hidden></p>
   </div>
@@ -238,6 +247,102 @@ const TIPO_INDICIO = new Map([
   ['extracao_funcao', 'Função extraída'],
 ]);
 
+const TIPO_AST = new Map([
+  ['funcao_adicionada', 'Função adicionada'],
+  ['funcao_removida', 'Função removida'],
+  ['classe_adicionada', 'Classe adicionada'],
+  ['classe_removida', 'Classe removida'],
+  ['assinatura_modificada', 'Assinatura modificada'],
+  ['decoradores_modificados', 'Decoradores modificados'],
+  ['docstring_alterada', 'Docstring alterada'],
+  ['condicao_modificada', 'Condição modificada'],
+  ['condicao_adicionada', 'Condição adicionada'],
+  ['condicao_removida', 'Condição removida'],
+  ['tratamento_excecao_modificado', 'Tratamento de exceção modificado'],
+  ['tratamento_excecao_adicionado', 'Tratamento de exceção adicionado'],
+  ['tratamento_excecao_removido', 'Tratamento de exceção removido'],
+  ['corpo_modificado', 'Corpo da função modificado'],
+  ['possivel_extracao', 'Possível extração de função'],
+  ['possivel_movimentacao', 'Possível movimentação de função'],
+]);
+const LIMITE_AST = new Map([
+  ['erro_sintaxe', 'Erro de sintaxe'],
+  ['binario', 'Arquivo binário'],
+  ['utf8_invalido', 'Codificação incompatível'],
+  ['tipo_nao_suportado', 'Tipo de arquivo não suportado'],
+  ['limite_bytes_arquivo', 'Limite de tamanho por arquivo excedido'],
+  ['limite_bytes_totais', 'Limite total de leitura excedido'],
+  ['limite_bytes', 'Limite de tamanho da versão excedido'],
+  ['limite_arquivos', 'Limite de quantidade de arquivos atingido'],
+  ['limite_tempo', 'Tempo de leitura excedido'],
+  ['limite_complexidade', 'Limite de complexidade excedido'],
+  ['limite_profundidade', 'Limite de profundidade excedido'],
+  ['declaracoes_homonimas', 'Declarações com o mesmo nome no escopo'],
+]);
+
+function localAst(local) {
+  if (!local) return '';
+  const escopo = local.escopo && local.escopo !== '<modulo>' ? local.escopo : '';
+  return [local.arquivo, escopo, local.linha ? 'linha ' + local.linha : ''].filter(Boolean).join(' · ');
+}
+
+function renderAst(resultado, solicitado) {
+  const painel = $('git-ast-toggle');
+  const corpo = $('git-ast-result');
+  painel.open = false;
+  painel.hidden = !solicitado;
+  corpo.replaceChildren();
+  if (!solicitado) return;
+
+  const cobertura = resultado?.cobertura;
+  let aviso = '';
+  if (cobertura === 'parcial') aviso = 'Cobertura parcial';
+  else if (cobertura === 'erro_sintaxe') aviso = 'Erro de sintaxe';
+  else if (cobertura !== 'completa') aviso = 'Análise indisponível';
+  $('git-ast-heading').textContent = 'Evidências estruturais' + (aviso ? ' · ' + aviso : '');
+  if (aviso) appendText(corpo, 'p', 'Resultado inconclusivo para as versões que ficaram sem análise.').className = 'hint';
+
+  const evidencias = resultado?.evidencias || [];
+  const arquivos = resultado?.arquivos || [];
+  if (evidencias.length) {
+    const lista = document.createElement('ul');
+    for (const fato of evidencias) {
+      const antes = localAst(fato.anterior);
+      const depois = localAst(fato.posterior);
+      const local = antes && depois && antes !== depois
+        ? 'Antes: ' + antes + ' / Depois: ' + depois : antes || depois;
+      const tipo = TIPO_AST.get(fato.tipo) || 'Estrutura modificada';
+      appendText(lista, 'li', tipo + (local ? ' — ' + local : ''));
+    }
+    corpo.appendChild(lista);
+    if (evidencias.some(fato => fato.limitacao)) {
+      appendText(corpo, 'p', 'As relações sugeridas pelo código podem mudar conforme o contexto e precisam de revisão.').className = 'hint';
+    }
+  } else if (cobertura === 'completa') {
+    appendText(corpo, 'p', arquivos.length ? 'Nenhuma diferença estrutural encontrada.' : 'Nenhum arquivo Python alterado.');
+  }
+
+  const motivosPorArquivo = new Set();
+  const avisos = [];
+  for (const arquivo of arquivos) {
+    for (const limite of arquivo.limitacoes || []) {
+      motivosPorArquivo.add(limite.motivo);
+      const motivo = LIMITE_AST.get(limite.motivo) || 'Versão indisponível';
+      const lado = limite.lado === 'anterior' ? 'versão anterior' : 'versão posterior';
+      const linha = limite.linha ? ' · linha ' + limite.linha : '';
+      avisos.push(motivo + ' — ' + arquivo.caminho + ' · ' + lado + linha);
+    }
+  }
+  for (const limite of resultado?.limitacoes || []) {
+    if (!motivosPorArquivo.has(limite)) avisos.push(LIMITE_AST.get(limite) || 'Uma parte da análise ficou indisponível.');
+  }
+  if (avisos.length) {
+    const lista = document.createElement('ul');
+    for (const item of new Set(avisos)) appendText(lista, 'li', item);
+    corpo.appendChild(lista);
+  }
+}
+
 function renderGit(dados) {
   const git = dados.git;
   const comparacao = dados.analise_codigo?.comparacao;
@@ -297,6 +402,9 @@ function renderGit(dados) {
 
 $('git-analisar').addEventListener('click', async () => {
   const botao = $('git-analisar');
+  const incluirAst = $('git-incluir-ast').checked;
+  const pedido = {commit: $('git-ref').value.trim()};
+  if (incluirAst) pedido.analise_estrutural = true;
   botao.disabled = true;
   botao.textContent = 'Lendo commit...';
   $('git-error').hidden = true;
@@ -305,9 +413,10 @@ $('git-analisar').addEventListener('click', async () => {
     const dados = await getJson('/api/git/analisar', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({commit: $('git-ref').value.trim()}),
+      body: JSON.stringify(pedido),
     });
     renderGit(dados);
+    renderAst(dados.analise_estrutural, incluirAst);
     $('titulo').value = dados.git.titulo;
     $('descricao').value = dados.git.descricao;
     if (dados.analise) {
