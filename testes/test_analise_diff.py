@@ -39,9 +39,9 @@ class TestAnaliseDiff(unittest.TestCase):
         else:
             caminho.write_text(conteudo, encoding="utf-8")
 
-    def commit(self):
+    def commit(self, mensagem="Exemplo"):
         self.git("add", "--all")
-        self.git("commit", "-qm", "Exemplo", "--allow-empty")
+        self.git("commit", "-qm", mensagem, "--allow-empty")
 
     def extrair(self, **opcoes):
         return analisar_diff(analisar_commit(self.raiz, **opcoes))
@@ -196,6 +196,110 @@ class TestAnaliseDiff(unittest.TestCase):
         self.assertEqual(resultado["linhas_adicionadas_na_previa"], 1)
         self.assertEqual(resultado["linhas_removidas_na_previa"], 1)
         self.assertEqual(resultado["evidencias"], [])
+
+    def test_somente_readme(self):
+        self.gravar("README", "Instruções\n")
+        self.commit("fix: atualizar instruções")
+        indicios = self.extrair()["indicios"]
+        self.assertEqual(indicios["categoria"], "docs")
+        self.assertEqual(indicios["estado"], "com_indicios")
+        self.assertFalse(indicios["misto"])
+        self.assertEqual(indicios["arquivos_relacionados"], ["README"])
+        self.assertEqual(indicios["evidencias"], [
+            {"tipo": "caminho", "arquivo": "README", "categorias": ["docs"]},
+        ])
+        self.assertIn("intenção", indicios["limites"][0])
+
+    def test_somente_documentacao(self):
+        self.gravar("docs/guia.txt", "Guia\n")
+        self.gravar("referencia.rst", "Referência\n")
+        self.commit()
+        indicios = self.extrair()["indicios"]
+        self.assertEqual(indicios["categoria"], "docs")
+        self.assertEqual(indicios["arquivos_relacionados"], ["docs/guia.txt", "referencia.rst"])
+
+    def test_somente_testes_python(self):
+        self.gravar("test_exemplo.py", "assert True\n")
+        self.gravar("simples_test.py", "assert 1 == 1\n")
+        self.commit()
+        indicios = self.extrair()["indicios"]
+        self.assertEqual(indicios["categoria"], "test")
+        self.assertEqual(indicios["arquivos_relacionados"], ["simples_test.py", "test_exemplo.py"])
+
+    def test_somente_testes_javascript(self):
+        self.gravar("src/exemplo.test.js", "test('exemplo', () => {});\n")
+        self.gravar("src/outro.spec.js", "test('outro', () => {});\n")
+        self.commit()
+        indicios = self.extrair()["indicios"]
+        self.assertEqual(indicios["categoria"], "test")
+        self.assertEqual(indicios["arquivos_relacionados"], ["src/exemplo.test.js", "src/outro.spec.js"])
+
+    def test_documentacao_e_codigo_misturados(self):
+        self.gravar("docs/guia.md", "# Guia\n")
+        self.gravar("docs/exemplo.py", "print('Exemplo')\n")
+        self.commit()
+        indicios = self.extrair()["indicios"]
+        self.assertIsNone(indicios["categoria"])
+        self.assertEqual(indicios["estado"], "inconclusivo")
+        self.assertTrue(indicios["misto"])
+        self.assertEqual(indicios["arquivos_relacionados"], ["docs/guia.md"])
+
+    def test_testes_e_codigo_misturados(self):
+        self.gravar("src/calculo.py", "def calcular():\n    return 1\n")
+        self.gravar("testes/test_calculo.py", "assert True\n")
+        self.commit()
+        indicios = self.extrair()["indicios"]
+        self.assertIsNone(indicios["categoria"])
+        self.assertEqual(indicios["estado"], "inconclusivo")
+        self.assertTrue(indicios["misto"])
+        self.assertEqual(indicios["arquivos_relacionados"], ["testes/test_calculo.py"])
+
+    def test_arquivos_nao_reconhecidos_ignoram_prefixo_do_titulo(self):
+        self.gravar("src/calculo.py", "def calcular():\n    return 1\n")
+        self.gravar("dados.csv", "valor\n1\n")
+        self.commit("docs: título sem prova")
+        indicios = self.extrair()["indicios"]
+        self.assertIsNone(indicios["categoria"])
+        self.assertEqual(indicios["estado"], "inconclusivo")
+        self.assertFalse(indicios["misto"])
+        self.assertEqual(indicios["evidencias"], [])
+        self.assertEqual(indicios["arquivos_relacionados"], [])
+
+    def test_documentacao_e_testes_no_mesmo_commit(self):
+        self.gravar("README.md", "# Exemplo\n")
+        self.gravar("src/exemplo.test.js", "test('exemplo', () => {});\n")
+        self.commit()
+        indicios = self.extrair()["indicios"]
+        self.assertIsNone(indicios["categoria"])
+        self.assertEqual(indicios["estado"], "inconclusivo")
+        self.assertTrue(indicios["misto"])
+        self.assertEqual([e["categorias"] for e in indicios["evidencias"]], [["docs"], ["test"]])
+
+    def test_caminho_com_sinais_sobrepostos(self):
+        self.gravar("tests/README.md", "# Como testar\n")
+        self.commit()
+        indicios = self.extrair()["indicios"]
+        self.assertIsNone(indicios["categoria"])
+        self.assertEqual(indicios["estado"], "inconclusivo")
+        self.assertEqual(indicios["evidencias"][0]["categorias"], ["docs", "test"])
+
+    def test_binario_com_nome_de_documentacao_nao_da_indicio(self):
+        self.gravar("README.md", b"\x00\x01\x02")
+        self.commit()
+        indicios = self.extrair()["indicios"]
+        self.assertIsNone(indicios["categoria"])
+        self.assertEqual(indicios["evidencias"], [])
+
+    def test_indicios_consideram_arquivos_fora_da_previa_truncada(self):
+        self.gravar("README.md", "# Exemplo\n" * 20)
+        self.gravar("z_codigo.py", "print('Exemplo')\n")
+        self.commit()
+        entrada = analisar_commit(self.raiz, max_chars=100)
+        self.assertTrue(entrada["diff_truncado"])
+        self.assertNotIn("z_codigo.py", entrada["diff_previa"])
+        indicios = analisar_diff(entrada)["indicios"]
+        self.assertIsNone(indicios["categoria"])
+        self.assertTrue(indicios["misto"])
 
 
 if __name__ == "__main__":

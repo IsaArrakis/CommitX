@@ -19,6 +19,18 @@ def _caminho(cabecalho, prefixo):
     return nome.removeprefix(prefixo)
 
 
+def _arquivo_documentacao(caminho):
+    partes = caminho.strip('"').lower().split("/")
+    nome = partes[-1]
+    return (
+        nome in {"readme", "readme.txt"}
+        or nome.endswith((".md", ".markdown", ".rst", ".adoc", ".asciidoc"))
+        or (nome.endswith(".txt") and any(
+            parte in {"doc", "docs", "documentacao", "documentation"} for parte in partes[:-1]
+        ))
+    )
+
+
 def _arquivo_teste(caminho):
     partes = caminho.strip('"').lower().split("/")
     nome = partes[-1]
@@ -29,6 +41,49 @@ def _arquivo_teste(caminho):
         or nome.endswith(("_test.py", "_test.go", ".test.js", ".test.ts", ".test.jsx",
                           ".test.tsx", ".spec.js", ".spec.ts", ".spec.jsx", ".spec.tsx"))
     )
+
+
+def _indicios_por_arquivo(arquivos):
+    evidencias = []
+    categorias = set()
+    for arquivo in arquivos:
+        if arquivo["binario"]:
+            continue
+        sinais = [
+            categoria
+            for categoria, campo in (("docs", "arquivo_documentacao"), ("test", "arquivo_teste"))
+            if arquivo[campo]
+        ]
+        if sinais:
+            categorias.update(sinais)
+            evidencias.append({
+                "tipo": "caminho",
+                "arquivo": arquivo["arquivo"],
+                "categorias": sinais,
+            })
+
+    categoria = None
+    limites = ["A intenção do commit permanece em aberto quando a evidência se limita aos caminhos."]
+    misto = bool(evidencias) and len(arquivos) > 1 and (
+        len(categorias) > 1 or len(evidencias) != len(arquivos)
+    )
+    if len(categorias) == 1 and len(evidencias) == len(arquivos):
+        categoria = next(iter(categorias))
+    elif misto:
+        limites.append("A lista inclui sinais diferentes ou arquivos sem indícios reconhecidos.")
+    elif evidencias:
+        limites.append("O caminho tem convenções de documentação e de testes.")
+    else:
+        limites.append("A lista de arquivos não oferece indícios suficientes.")
+
+    return {
+        "categoria": categoria,
+        "estado": "inconclusivo" if categoria is None else "com_indicios",
+        "misto": misto,
+        "evidencias": evidencias,
+        "arquivos_relacionados": [evidencia["arquivo"] for evidencia in evidencias],
+        "limites": limites,
+    }
 
 
 def _ler_hunk(cabecalho, linhas):
@@ -131,9 +186,11 @@ def analisar_diff(commit: dict) -> dict:
     As contagens totais vêm do leitor. As contagens da prévia e as evidências
     usam apenas linhas visíveis de hunks válidos ou interrompidos pelo corte.
     Os sinais Python são léxicos e dependem do contexto visível em cada hunk.
+    Os indícios de documentação e testes usam a lista completa de arquivos.
     """
     arquivos = [
         {**arquivo, "binario": arquivo["adicionadas"] is None and arquivo["removidas"] is None,
+         "arquivo_documentacao": _arquivo_documentacao(arquivo["arquivo"]),
          "arquivo_teste": _arquivo_teste(arquivo["arquivo"])}
         for arquivo in commit["arquivos"]
     ]
@@ -187,4 +244,5 @@ def analisar_diff(commit: dict) -> dict:
         "diff_truncado": truncado,
         "evidencias": evidencias,
         "limitacoes": limitacoes,
+        "indicios": _indicios_por_arquivo(arquivos),
     }
