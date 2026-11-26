@@ -302,5 +302,52 @@ class TestAnaliseDiff(unittest.TestCase):
         self.assertTrue(indicios["misto"])
 
 
+    def alterar_codigo(self, antes, depois, **opcoes):
+        self.gravar("modulo.py", antes)
+        self.commit()
+        self.gravar("modulo.py", depois)
+        self.commit("docs: exemplo")
+        return self.extrair(**opcoes)["indicios_codigo"]
+
+    def test_codigo_tratamento_excecao(self):
+        r = self.alterar_codigo("ler()\n", "try:\n    ler()\nexcept ValueError:\n    pass\n")
+        self.assertEqual(r["candidatas"], ["fix"])
+        self.assertEqual(r["evidencias"][0]["linha"], 3)
+
+    def test_codigo_funcao_endpoint_e_arquivo(self):
+        self.gravar("api.py", '@app.get("/itens")\ndef itens():\n    return []\n')
+        self.commit()
+        r = self.extrair()["indicios_codigo"]
+        self.assertEqual(r["candidatas"], ["feat"])
+        self.assertEqual({e["tipo"] for e in r["evidencias"]}, {"endpoint", "declaracao", "arquivo_novo"})
+
+    def test_codigo_condicao_alterada(self):
+        r = self.alterar_codigo("if valor:\n    ler()\n", "if valor is not None:\n    ler()\n")
+        self.assertEqual(r["candidatas"], ["fix"])
+        self.assertEqual({e["tipo"] for e in r["evidencias"]}, {"condicao_alterada", "verificacao_nulo"})
+
+    def test_codigo_extracao(self):
+        r = self.alterar_codigo("def custo(x):\n    return x * 2\n",
+                                "def custo(x):\n    return dobro(x)\n\ndef dobro(x):\n    return x * 2\n")
+        self.assertIn("extracao_funcao", [e["tipo"] for e in r["evidencias"]])
+        self.assertEqual(r["candidatas"], ["feat", "refactor"])
+
+    def test_codigo_cosmetico(self):
+        r = self.alterar_codigo("if valor > 0:\n    ler()\n", "if valor>0:  # comentário\n    ler()\n")
+        self.assertEqual(r["candidatas"], [])
+        self.assertEqual(r["estado"], "inconclusivo")
+
+    def test_codigo_ambiguo(self):
+        r = self.alterar_codigo("x = 1\n", "def validar(x):\n    assert x > 0\n")
+        self.assertEqual(r["candidatas"], ["feat", "fix"])
+        self.assertEqual(r["estado"], "inconclusivo")
+
+    def test_codigo_truncado(self):
+        r = self.alterar_codigo("x = 1\n", "def nova():\n    return 1\n" * 30, max_chars=120)
+        self.assertTrue(r["diff_truncado"])
+        self.assertTrue(r["previa_insuficiente"])
+        self.assertEqual(r["estado"], "inconclusivo")
+
+
 if __name__ == "__main__":
     unittest.main()
