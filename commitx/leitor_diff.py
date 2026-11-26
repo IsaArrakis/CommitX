@@ -4,28 +4,91 @@ Uso:
     python -m commitx.leitor_diff --repositorio . --commit HEAD
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor, wait
+from contextlib import contextmanager, suppress
 import json
+import os
 from pathlib import Path
+import signal
 import subprocess
+from time import monotonic
 
 
-def _git(repositorio, *argumentos):
+_TIMEOUT_GIT = 20
+
+
+def _ambiente_git():
+    # A consulta a um clone parcial também deve ser somente leitura.
+    return {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_ALLOW_PROTOCOL": "",
+            "GIT_OPTIONAL_LOCKS": "0"}
+
+
+@contextmanager
+def _erros_git():
     try:
-        processo = subprocess.run(
-            ["git", "-C", str(repositorio), *argumentos],
-            capture_output=True, text=True, encoding="utf-8",
-            errors="replace", timeout=20, check=False,
-        )
+        yield
     except FileNotFoundError as erro:
         raise ValueError("Git não encontrado. Instale o Git para continuar.") from erro
     except subprocess.TimeoutExpired as erro:
-        raise ValueError("Consulta Git demorou mais de 20 segundos.") from erro
-    if processo.returncode:
+        raise ValueError(f"Consulta Git demorou mais de {_TIMEOUT_GIT} segundos.") from erro
+
+
+def _verificar_saida(codigo, detalhe):
+    if codigo:
         raise ValueError(
             "Git não conseguiu executar a consulta: "
-            + (processo.stderr.strip() or "repositório ou commit inválido")
+            + (detalhe.strip() or "repositório ou commit inválido")
         )
+
+
+def _git(repositorio, *argumentos, bruto=False):
+    with _erros_git():
+        processo = subprocess.run(
+            ["git", "-C", str(repositorio), *argumentos],
+            capture_output=True, env=_ambiente_git(), encoding=None if bruto else "utf-8",
+            errors=None if bruto else "replace", timeout=_TIMEOUT_GIT, check=False,
+        )
+    detalhe = processo.stderr.decode("utf-8", "replace") if bruto else processo.stderr
+    _verificar_saida(processo.returncode, detalhe)
     return processo.stdout
+
+
+def _capturar_prefixo(fluxo, limite):
+    # TextIOWrapper resolve UTF-8 e quebras de linha antes de contar caracteres.
+    prefixo = fluxo.read(limite + 1)
+    truncado = len(prefixo) > limite
+    if truncado:
+        # Drena o restante em blocos para obter o status real de saída do Git.
+        while fluxo.buffer.read(65536):
+            pass
+    return prefixo[:limite], truncado
+
+
+def _previa_patch(repositorio, *argumentos, max_chars):
+    with _erros_git(), subprocess.Popen(
+        ["git", "-C", str(repositorio), *argumentos],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_ambiente_git(),
+        text=True, encoding="utf-8", errors="replace", start_new_session=os.name == "posix",
+    ) as processo, ThreadPoolExecutor(max_workers=2) as leitores:
+        prazo = monotonic() + _TIMEOUT_GIT
+        try:
+            # As duas saídas precisam escoar mesmo quando uma delas enche o pipe.
+            previa = leitores.submit(_capturar_prefixo, processo.stdout, max_chars)
+            diagnostico = leitores.submit(_capturar_prefixo, processo.stderr, 4096)
+            _, pendentes = wait((previa, diagnostico), timeout=_TIMEOUT_GIT)
+            if pendentes:
+                raise subprocess.TimeoutExpired(processo.args, _TIMEOUT_GIT)
+            codigo = processo.wait(timeout=max(0, prazo - monotonic()))
+        except BaseException:
+            # Um auxiliar do Git também pode manter o pipe aberto após a saída do pai.
+            if os.name == "posix":
+                with suppress(ProcessLookupError):
+                    os.killpg(processo.pid, signal.SIGKILL)
+            else:
+                processo.kill()
+            raise
+        _verificar_saida(codigo, diagnostico.result()[0])
+        return previa.result()
 
 
 def analisar_commit(repositorio, commit="HEAD", *, max_chars=8000):
@@ -54,35 +117,35 @@ def analisar_commit(repositorio, commit="HEAD", *, max_chars=8000):
     pais = _git(raiz, "rev-list", "--parents", "-n", "1", sha).strip().split()[1:]
     if pais:
         linhas = _git(
-            raiz, "diff", "--numstat", "--no-ext-diff", "--no-renames",
-            "--no-textconv", pais[0], sha, "--",
+            raiz, "diff", "--numstat", "-z", "--no-ext-diff", "--no-renames",
+            "--no-textconv", pais[0], sha, "--", bruto=True,
         )
     else:
         linhas = _git(
-            raiz, "diff-tree", "--root", "--no-commit-id", "--numstat",
-            "-r", "--no-renames", sha,
+            raiz, "diff-tree", "--root", "--no-commit-id", "--numstat", "-z",
+            "-r", "--no-renames", "--no-ext-diff", "--no-textconv", sha, "--", bruto=True,
         )
     arquivos = []
     adicionadas = removidas = 0
-    for linha in linhas.splitlines():
-        partes = linha.split("\t", 2)
-        if len(partes) != 3:
+    for registro in linhas.split(b"\0"):
+        if not registro:
             continue
-        a, r, nome = partes
-        if a.isdigit() and r.isdigit():
-            adicionadas += int(a)
-            removidas += int(r)
-        arquivos.append({"arquivo": nome, "adicionadas": int(a) if a.isdigit() else None,
-                         "removidas": int(r) if r.isdigit() else None})
+        a, r, nome = registro.split(b"\t", 2)
+        adicoes = None if a == b"-" else int(a)
+        remocoes = None if r == b"-" else int(r)
+        adicionadas += adicoes or 0
+        removidas += remocoes or 0
+        arquivos.append({"arquivo": nome.decode("utf-8", "replace"),
+                         "adicionadas": adicoes, "removidas": remocoes})
     if pais:
-        patch = _git(
+        previa, truncado = _previa_patch(
             raiz, "diff", "--patch", "--no-ext-diff", "--no-renames",
-            "--no-color", "--no-textconv", pais[0], sha, "--",
+            "--no-color", "--no-textconv", pais[0], sha, "--", max_chars=max_chars,
         )
     else:
-        patch = _git(
+        previa, truncado = _previa_patch(
             raiz, "show", "--format=", "--no-ext-diff",
-            "--no-renames", "--no-color", "--no-textconv", sha,
+            "--no-renames", "--no-color", "--no-textconv", sha, "--", max_chars=max_chars,
         )
     return {
         "commit": sha,
@@ -94,8 +157,8 @@ def analisar_commit(repositorio, commit="HEAD", *, max_chars=8000):
         "linhas_adicionadas": adicionadas,
         "linhas_removidas": removidas,
         "arquivos": arquivos,
-        "diff_previa": patch[:max_chars],
-        "diff_truncado": len(patch) > max_chars,
+        "diff_previa": previa,
+        "diff_truncado": truncado,
         "observacao": "Dados descritivos; não são uma classificação automática.",
     }
 
