@@ -1,5 +1,6 @@
 """Exercita a rota Git em loopback com commits temporários."""
 
+from hashlib import sha256
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 import json
@@ -13,6 +14,7 @@ from unittest.mock import patch
 
 from commitx.escrita import revisar_escrita
 from commitx.leitor_diff import analisar_commit
+from commitx.v12_final import MANIFESTO, MODEL_COM, MODEL_SEM
 from commitx_site_git_v10 import criar_handler
 
 
@@ -52,15 +54,93 @@ class TestApiGit(unittest.TestCase):
         return self.git("rev-parse", "HEAD")
 
     def post(self, dados, rota="/api/git/analisar"):
+        return self.requisitar("POST", rota, json.dumps(dados))
+
+    def requisitar(self, metodo, rota, corpo=None):
         conexao = HTTPConnection("127.0.0.1", self.porta, timeout=5)
         try:
-            conexao.request("POST", rota, json.dumps(dados),
+            conexao.request(metodo, rota, corpo,
                             {"Content-Type": "application/json"})
             resposta = conexao.getresponse()
             self.assertEqual(resposta.getheader("Content-Type"), "application/json; charset=utf-8")
             return resposta.status, json.loads(resposta.read())
         finally:
             conexao.close()
+
+    def criar_artefatos_temporarios(self):
+        hashes = {}
+        for nome in (MODEL_COM, MODEL_SEM):
+            conteudo = f"Bytes de teste para {nome}".encode("utf-8")
+            (self.artefatos / nome).write_bytes(conteudo)
+            hashes[nome] = sha256(conteudo).hexdigest()
+        manifesto = {"versao": "V12-final-v12_extra_030", "artefatos_sha256": hashes,
+                     "paridade_oof": {"com_prefixo": {"paridade": True}}}
+        self.gravar_manifesto(manifesto)
+        return manifesto
+
+    def gravar_manifesto(self, dados):
+        (self.artefatos / MANIFESTO).write_text(json.dumps(dados), encoding="utf-8")
+
+    def verificar_status_v12(self, estado, oof):
+        with patch("commitx.v12_final.joblib.load") as carregar:
+            status, dados = self.requisitar("GET", "/api/status")
+        carregar.assert_not_called()
+        self.assertEqual(status, 200)
+        self.assertEqual(dados, {"pronto": estado == "pronto", "oof": oof, "estado": estado})
+
+    def test_status_pronto_com_hashes_validos(self):
+        manifesto = self.criar_artefatos_temporarios()
+        self.verificar_status_v12("pronto", manifesto["paridade_oof"])
+
+    def test_status_indica_cada_artefato_ausente(self):
+        for nome in (MANIFESTO, MODEL_COM, MODEL_SEM):
+            with self.subTest(nome=nome):
+                manifesto = self.criar_artefatos_temporarios()
+                (self.artefatos / nome).unlink()
+                oof = {} if nome == MANIFESTO else manifesto["paridade_oof"]
+                self.verificar_status_v12("artefatos_ausentes", oof)
+
+    def test_status_manifesto_incompativel(self):
+        manifesto = self.criar_artefatos_temporarios()
+        self.gravar_manifesto({**manifesto, "versao": "outra-versao"})
+        self.verificar_status_v12("manifesto_incompativel", manifesto["paridade_oof"])
+        self.gravar_manifesto([])
+        self.verificar_status_v12("manifesto_incompativel", {})
+        (self.artefatos / MANIFESTO).write_bytes(b"{")
+        self.verificar_status_v12("manifesto_incompativel", {})
+
+    def test_status_detecta_adulteracao_em_cada_modelo(self):
+        for nome in (MODEL_COM, MODEL_SEM):
+            with self.subTest(nome=nome):
+                manifesto = self.criar_artefatos_temporarios()
+                (self.artefatos / nome).write_bytes(b"artefato alterado")
+                self.verificar_status_v12("integridade_invalida", manifesto["paridade_oof"])
+
+    def test_status_exige_os_dois_hashes_no_manifesto(self):
+        manifesto = self.criar_artefatos_temporarios()
+        del manifesto["artefatos_sha256"][MODEL_SEM]
+        self.gravar_manifesto(manifesto)
+        self.verificar_status_v12("integridade_invalida", manifesto["paridade_oof"])
+
+    def test_classificar_sem_modelos_preserva_erro_e_abstencao(self):
+        status, dados = self.post({"titulo": "docs: atualizar guia"}, "/api/classificar")
+        self.assertEqual(status, 400)
+        self.assertEqual(set(dados), {"erro"})
+        status, dados = self.post({"titulo": "ci: atualizar workflow"}, "/api/classificar")
+        self.assertEqual(status, 200)
+        self.assertEqual(set(dados), {"classificacao", "escrita"})
+        self.assertIsNone(dados["classificacao"]["categoria_sugerida"])
+
+    def test_classificar_rejeita_artefato_alterado_antes_de_carregar(self):
+        self.criar_artefatos_temporarios()
+        (self.artefatos / MODEL_SEM).write_bytes(b"artefato alterado")
+        with patch("commitx.v12_final.joblib.load") as carregar:
+            status, dados = self.post({"titulo": "docs: atualizar guia", "modo": "sem_prefixo"},
+                                      "/api/classificar")
+        carregar.assert_not_called()
+        self.assertEqual(status, 400)
+        self.assertEqual(set(dados), {"erro"})
+        self.assertIn("Artefato ausente ou alterado", dados["erro"])
 
     def test_commit_existente_e_compatibilidade_do_json(self):
         sha = self.commit()

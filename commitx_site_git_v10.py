@@ -29,7 +29,7 @@ from commitx.comparador_commit import comparar_commit
 from commitx.escrita import revisar_escrita
 from commitx.leitor_diff import analisar_commit
 from commitx.v12_final import (
-    MANIFESTO, MODEL_COM, MODEL_SEM, analisar_modelo,
+    MANIFESTO, MODEL_COM, MODEL_SEM, _sha256, analisar_modelo,
 )
 
 PADRAO = RAIZ / "resultados" / "modelo-final-v12-01"
@@ -606,18 +606,41 @@ checkStatus();drawHistory();
 
 
 def situacao(artefatos: Path) -> dict:
-    """Mostra metadados apenas de manifesto local; nao carrega joblib aqui."""
+    """Verifica o pacote local da V12 sem desserializar os modelos."""
     mp = artefatos / MANIFESTO
-    pronto = mp.is_file() and (artefatos / MODEL_COM).is_file() and (artefatos / MODEL_SEM).is_file()
+    modelos = (artefatos / MODEL_COM, artefatos / MODEL_SEM)
     dados = {}
-    if mp.is_file():
-        try:
+    try:
+        manifesto_presente = mp.is_file()
+        modelos_presentes = all(modelo.is_file() for modelo in modelos)
+        if manifesto_presente:
             dados = json.loads(mp.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            pronto = False
+    except FileNotFoundError:
+        estado = "artefatos_ausentes"
+    except ValueError:
+        estado = "manifesto_incompativel"
+    except OSError:
+        estado = "integridade_invalida"
+    else:
+        if not manifesto_presente or not modelos_presentes:
+            estado = "artefatos_ausentes"
+        elif not isinstance(dados, dict) or dados.get("versao") != "V12-final-v12_extra_030":
+            estado = "manifesto_incompativel"
+        else:
+            hashes = dados.get("artefatos_sha256")
+            try:
+                validos = isinstance(hashes, dict) and all(
+                    _sha256(modelo) == hashes.get(modelo.name) for modelo in modelos
+                )
+                estado = "pronto" if validos else "integridade_invalida"
+            except FileNotFoundError:
+                estado = "artefatos_ausentes"
+            except OSError:
+                estado = "integridade_invalida"
     return {
-        "pronto": pronto,
+        "pronto": estado == "pronto",
         "oof": dados.get("paridade_oof", {}) if isinstance(dados, dict) else {},
+        "estado": estado,
     }
 
 
@@ -811,8 +834,9 @@ def main(argv=None):
     if not 1024 <= args.porta <= 65535:
         parser.error("Porta deve estar entre 1024 e 65535.")
     pasta = args.artefatos.resolve()
-    if not situacao(pasta)["pronto"]:
-        print("AVISO: Modelos finais V12 não encontrados na pasta:", pasta)
+    status = situacao(pasta)
+    if not status["pronto"]:
+        print(f"AVISO: V12 indisponível ({status['estado']}) na pasta {pasta}")
         print("O site abre para demonstração, mas a classificação só funcionará após restaurar os artefatos locais de treinamento.")
     servidor = ThreadingHTTPServer(("127.0.0.1", args.porta), criar_handler(pasta, args.repositorio.expanduser().resolve()))
     print(f"\nCommitX V12 disponível em http://127.0.0.1:{args.porta}")
