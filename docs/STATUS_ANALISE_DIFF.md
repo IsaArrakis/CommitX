@@ -2,26 +2,25 @@
 
 ## Etapa concluída
 
-Planejamento da integração a partir do estado de `main` em `4866673`. O ambiente começou sem checkout e a referência `feat/analise-diff-semantico` não foi encontrada no remoto consultado. A branch de trabalho foi criada localmente a partir dessa base, com a árvore de trabalho limpa. A entrega desta etapa contém somente documentação.
+Etapa 2 concluída na branch `feat/analise-diff-semantico`. O extrator `analisar_diff` recebe o dicionário de `analisar_commit` e devolve dados estruturados e evidências por arquivo, lado e número de linha. As contagens totais do leitor e as contagens observadas na prévia são distintas. A extração usa apenas a biblioteca padrão, sem executar o conteúdo do patch ou atribuir uma categoria.
 
 ## Arquivos alterados
 
-- `docs/PLANO_ANALISE_DIFF.md` registra o fluxo atual, as interfaces propostas, os riscos e os critérios de aceite.
-- `docs/STATUS_ANALISE_DIFF.md` registra o escopo, as verificações, as limitações e o próximo passo.
+- `commitx/analise_diff.py` extrai evidências de funções, classes, imports, condições, exceções e comentários em Python. Identifica linhas de teste por caminho e binários pelos metadados do leitor.
+- `testes/test_analise_diff.py` cobre diffs reais em repositórios temporários e a recuperação após um hunk malformado.
+- `docs/STATUS_ANALISE_DIFF.md` registra o contrato entregue, as verificações e o próximo passo.
 
 ## Testes e verificações
 
-- `python -B -m unittest discover -s testes -p test_leitor_diff.py -v` passou nos seis testes do leitor Git.
-- `python -B -m unittest -v testes.test_v12_final.V12FinalTests.test_sem_artefato_nao_finge_classificacao testes.test_v12_final.V12FinalTests.test_tipo_fora_escopo_abstem_sem_abrir_artefato` passou nos dois testes de inferência sem treinamento.
-- A verificação HTTP em loopback usou um repositório temporário com um commit de documentação e um diretório vazio de artefatos. Passaram as três consultas a `GET /api/status` e `POST /api/git/analisar`, cobrindo status indisponível, leitura válida com `analise: null` e indício `docs`, e referência inválida com HTTP 400.
-- `git diff --check` e a checagem equivalente do conteúdo preparado para commit (`git diff --cached --check`) passaram sem apontamentos.
+- `.venv/bin/python -m unittest testes.test_analise_diff -v` passou nos 10 testes, cobrindo diff vazio, Python, múltiplos arquivos, funções adicionadas e removidas, exceções, truncamento, binário, hunk malformado e distinção entre cabeçalhos e linhas de código.
+- `.venv/bin/python -m unittest testes.test_leitor_diff -v` passou nos seis testes do leitor. O ambiente virtual foi criado sem pip para executar as verificações.
+- `git diff --check` e `git diff --cached --check` passaram.
 
 ## Problemas conhecidos
 
-- `diff_previa` é uma amostra. A truncagem após a captura não limita o volume lido do Git e pode esconder mudanças necessárias à análise.
-- A heurística atual usa caminhos e não distingue mudanças de comportamento de reorganizações internas. A comparação com o primeiro pai resume apenas uma perspectiva de um merge.
-- A suíte completa inclui testes com ajuste de modelos. A verificação foi direcionada às rotinas de leitura e de inferência sem treinamento. A verificação HTTP usou o cenário sem artefatos, então a previsão com os modelos locais ficou fora do teste.
+- Os sinais Python são léxicos e dependem do contexto visível por hunk. Uma declaração ou string que começa fora desse contexto pode escapar à análise. A cobertura sintática inicial abrange `.py` e `.pyi`. A indicação de testes usa convenções de caminho.
+- Uma prévia truncada pode omitir arquivos ou linhas. O resultado sinaliza cobertura parcial, descarta a última linha quando interrompida e mantém os totais originais do leitor. Um hunk malformado é descartado, preservando as evidências dos demais hunks válidos.
 
 ## Próximo passo
 
-Definir os registros de entrada e saída e os limites da leitura de arquivos. Em seguida, preparar casos de referência com commits temporários e validar o extrator isoladamente antes da integração com o site.
+Validar a integração opcional com o site, preservando o contrato atual das rotas e verificando a leitura Git quando os artefatos da V12 ou a análise do diff estiverem indisponíveis.
