@@ -192,3 +192,111 @@ class TestApiGit(unittest.TestCase):
         self.assertIsNone(dados["analise_codigo"]["diff"])
         self.assertEqual(dados["analise_codigo"]["comparacao"]["status"], "inconclusivo")
         self.assertNotIn("conteúdo reservado", json.dumps(dados))
+
+    def commit_python(self, conteudo, nome="modulo.py"):
+        (self.repo / nome).write_text(conteudo, encoding="utf-8")
+        self.git("add", "--", nome)
+        self.git("commit", "-qm", "feat: atualizar módulo")
+        return self.git("rev-parse", "HEAD")
+
+    def test_ast_desligada_por_padrao_e_com_false(self):
+        sha = self.commit_python("def nova(): pass\n")
+        with patch("commitx.versoes_git.ler_versoes_git") as leitor:
+            status_antigo, antigo = self.post({"commit": sha})
+            status_false, desligado = self.post({"commit": sha, "analise_estrutural": False})
+        leitor.assert_not_called()
+        self.assertEqual((status_antigo, status_false), (200, 200))
+        self.assertEqual(desligado, antigo)
+        self.assertEqual(set(antigo), {"git", "analise", "sinais", "analise_codigo"})
+
+    def test_ast_ligada_acrescenta_evidencias_sem_mudar_os_campos_anteriores(self):
+        pai = self.commit_python("def calcular(n):\n    if n > 0:\n        return n\n")
+        (self.repo / "guia.txt").write_text("descrição", encoding="utf-8")
+        self.git("add", "guia.txt")
+        sha = self.commit_python("def calcular(n):\n    if n >= 0:\n        return n\n")
+        v12 = {"categoria_sugerida": "feat", "modo": "com_prefixo"}
+        with patch("commitx_site_git_v10.analisar_modelo", return_value=v12):
+            _, antigo = self.post({"commit": sha})
+            status, dados = self.post({"commit": sha[:8], "analise_estrutural": True,
+                                      "repositorio": str(self.repo / "inexistente")})
+        self.assertEqual(status, 200)
+        ast = dados.pop("analise_estrutural")
+        self.assertEqual(dados, antigo)
+        self.assertEqual((ast["commit"], ast["comparado_com"], ast["cobertura"]),
+                         (sha, pai, "completa"))
+        self.assertEqual(ast["arquivos_ignorados"], [
+            {"caminho": "guia.txt", "motivo": "extensao_nao_suportada"},
+        ])
+        self.assertEqual([e["tipo"] for e in ast["evidencias"]], ["condicao_modificada"])
+        self.assertEqual(ast["evidencias"][0]["posterior"]["linha"], 2)
+        self.assertNotIn("conteudo", json.dumps(ast))
+
+    def test_ast_sem_arquivos_python(self):
+        self.commit()
+        status, dados = self.post({"analise_estrutural": True})
+        self.assertEqual(status, 200)
+        ast = dados["analise_estrutural"]
+        self.assertEqual((ast["cobertura"], ast["arquivos"], ast["evidencias"]), ("completa", [], []))
+        self.assertEqual([a["caminho"] for a in ast["arquivos_ignorados"]], ["README.md"])
+
+    def test_ast_codigo_invalido(self):
+        self.commit_python("def invalida(:\n")
+        status, dados = self.post({"analise_estrutural": True})
+        self.assertEqual(status, 200)
+        ast = dados["analise_estrutural"]
+        self.assertEqual(ast["cobertura"], "erro_sintaxe")
+        self.assertEqual(ast["arquivos"][0]["limitacoes"][0]["motivo"], "erro_sintaxe")
+        self.assertEqual(ast["evidencias"], [])
+
+    def test_ast_arquivo_grande_propaga_limite_de_leitura(self):
+        self.commit_python("# " + "x" * (256 * 1024) + "\n")
+        status, dados = self.post({"analise_estrutural": True})
+        self.assertEqual(status, 200)
+        ast = dados["analise_estrutural"]
+        self.assertEqual(ast["cobertura"], "parcial")
+        self.assertIn("limite_bytes_arquivo", ast["limitacoes"])
+        self.assertEqual(ast["arquivos"][0]["limitacoes"][0]["motivo"], "limite_bytes_arquivo")
+        self.assertEqual(ast["evidencias"], [])
+
+    def test_falha_ast_mantem_git_modelo_e_comparacao(self):
+        sha = self.commit_python("def nova(): pass\n")
+        v12 = {"categoria_sugerida": "feat"}
+        with patch("commitx_site_git_v10.analisar_modelo", return_value=v12):
+            _, antigo = self.post({})
+            for funcao in ("commitx.analise_ast.analisar_ast", "commitx.versoes_git.ler_versoes_git"):
+                with self.subTest(funcao=funcao), patch(funcao, side_effect=RuntimeError("detalhe interno")):
+                    status, dados = self.post({"analise_estrutural": True})
+                    self.assertEqual(status, 200)
+                    ast = dados.pop("analise_estrutural")
+                    self.assertEqual(dados, antigo)
+                    self.assertEqual((ast["commit"], ast["cobertura"]), (sha, "indisponivel"))
+                    self.assertEqual(ast["limitacoes"], ["falha_analise_estrutural"])
+                    self.assertNotIn("detalhe interno", json.dumps(ast))
+
+    def test_ast_funciona_sem_modelo_v12(self):
+        self.commit_python("def nova(): pass\n")
+        status, dados = self.post({"analise_estrutural": True})
+        self.assertEqual(status, 200)
+        self.assertIsNone(dados["analise"])
+        self.assertEqual(dados["analise_codigo"]["comparacao"]["status"], "inconclusivo")
+        self.assertEqual(dados["analise_estrutural"]["evidencias"][0]["tipo"], "funcao_adicionada")
+
+    def test_ast_requer_booleano(self):
+        self.commit()
+        with patch("commitx_site_git_v10.analisar_commit") as git:
+            for valor in (1, "true", None):
+                with self.subTest(valor=valor):
+                    status, dados = self.post({"analise_estrutural": valor})
+                    self.assertEqual(status, 400)
+                    self.assertIn("booleano", dados["erro"])
+        git.assert_not_called()
+
+    @unittest.skipUnless(os.name == "posix", "Caminho Git com bytes não UTF-8 exige POSIX.")
+    def test_ast_caminho_nao_utf8_preserva_resposta_json(self):
+        nome = os.fsdecode(b"modulo-\xff.py")
+        self.commit_python("def nova(): pass\n", nome)
+        status, dados = self.post({"analise_estrutural": True})
+        self.assertEqual(status, 200)
+        ast = dados["analise_estrutural"]
+        self.assertEqual(ast["arquivos"][0]["caminho"], nome)
+        self.assertEqual(ast["evidencias"][0]["posterior"]["arquivo"], nome)

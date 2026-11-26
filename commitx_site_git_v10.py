@@ -666,10 +666,33 @@ def classificar_alteracoes(arquivos: list, categoria: str | None = None) -> dict
     return {'indicio_forte': sinal,'observacao': nota}
 
 
+def _analise_estrutural(repositorio: Path, git: dict) -> dict:
+    """Analisa somente os objetos Python do SHA já resolvido pelo leitor Git."""
+    ignorados = [
+        {"caminho": arquivo["arquivo"], "motivo": "extensao_nao_suportada"}
+        for arquivo in git["arquivos"]
+        if not arquivo["arquivo"].endswith((".py", ".pyi"))
+    ]
+    try:
+        from commitx.analise_ast import analisar_ast
+        from commitx.versoes_git import ler_versoes_git
+
+        resultado = analisar_ast(ler_versoes_git(repositorio, git["commit"]))
+    except Exception:
+        resultado = {
+            "commit": git["commit"], "comparado_com": git["comparado_com"],
+            "cobertura": "indisponivel", "limitacoes": ["falha_analise_estrutural"],
+            "arquivos": [], "evidencias": [],
+        }
+    return {**resultado, "arquivos_ignorados": ignorados}
+
+
 def criar_handler(artefatos: Path, repositorio: Path):
+    """Aceita `analise_estrutural: true` no POST da rota Git."""
     class Handler(BaseHTTPRequestHandler):
         def _json(self, status: int, dados: dict):
-            payload = json.dumps(dados, ensure_ascii=False).encode("utf-8")
+            # Caminhos Git podem conter bytes que os nomes em Unicode não representam.
+            payload = json.dumps(dados, ensure_ascii=False).encode("utf-8", "backslashreplace")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
@@ -718,6 +741,9 @@ def criar_handler(artefatos: Path, repositorio: Path):
                     referencia = dados.get("commit", "HEAD") if isinstance(dados, dict) else None
                     if not isinstance(referencia, str) or not re.fullmatch(r"(?:HEAD(?:~[0-9]{1,3})?|[0-9a-fA-F]{7,40})", referencia):
                         raise ValueError("Use HEAD, HEAD~1 ou SHA hexadecimal de 7 a 40 caracteres.")
+                    solicitar_ast = dados.get("analise_estrutural", False)
+                    if not isinstance(solicitar_ast, bool):
+                        raise ValueError("O campo analise_estrutural deve ser booleano.")
                     try:
                         git = analisar_commit(repositorio, referencia, max_chars=6000)
                     except (ValueError, OSError):
@@ -754,9 +780,12 @@ def criar_handler(artefatos: Path, repositorio: Path):
                     if aviso_v12:
                         comparacao["avisos"].append(aviso_v12)
                         comparacao["explicacao"] = aviso_v12
-                    self._json(200, {"git": git, "analise": resultado,
-                                     "sinais": classificar_alteracoes(git["arquivos"], categoria),
-                                     "analise_codigo": {"diff": diff, "comparacao": comparacao}})
+                    resposta = {"git": git, "analise": resultado,
+                                "sinais": classificar_alteracoes(git["arquivos"], categoria),
+                                "analise_codigo": {"diff": diff, "comparacao": comparacao}}
+                    if solicitar_ast:
+                        resposta["analise_estrutural"] = _analise_estrutural(repositorio, git)
+                    self._json(200, resposta)
                 elif rota == "/api/comparar":
                     # Mesma entrada, pipeline real de cada modo: nenhuma predicao ficticia.
                     com = classificar({**dados, "modo": "com_prefixo"}, artefatos)["classificacao"]
