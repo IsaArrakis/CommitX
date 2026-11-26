@@ -24,10 +24,12 @@ if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
 # Importacao real do projeto; falhas de dependencia sao mostradas no console.
+from commitx.analise_diff import analisar_diff
+from commitx.comparador_commit import comparar_commit
 from commitx.escrita import revisar_escrita
 from commitx.leitor_diff import analisar_commit
 from commitx.v12_final import (
-    MANIFESTO, MODEL_COM, MODEL_SEM, analisar_modelo,
+    MANIFESTO, MODEL_COM, MODEL_SEM, _sha256, analisar_modelo,
 )
 
 PADRAO = RAIZ / "resultados" / "modelo-final-v12-01"
@@ -604,18 +606,41 @@ checkStatus();drawHistory();
 
 
 def situacao(artefatos: Path) -> dict:
-    """Mostra metadados apenas de manifesto local; nao carrega joblib aqui."""
+    """Verifica o pacote local da V12 sem desserializar os modelos."""
     mp = artefatos / MANIFESTO
-    pronto = mp.is_file() and (artefatos / MODEL_COM).is_file() and (artefatos / MODEL_SEM).is_file()
+    modelos = (artefatos / MODEL_COM, artefatos / MODEL_SEM)
     dados = {}
-    if mp.is_file():
-        try:
+    try:
+        manifesto_presente = mp.is_file()
+        modelos_presentes = all(modelo.is_file() for modelo in modelos)
+        if manifesto_presente:
             dados = json.loads(mp.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            pronto = False
+    except FileNotFoundError:
+        estado = "artefatos_ausentes"
+    except ValueError:
+        estado = "manifesto_incompativel"
+    except OSError:
+        estado = "integridade_invalida"
+    else:
+        if not manifesto_presente or not modelos_presentes:
+            estado = "artefatos_ausentes"
+        elif not isinstance(dados, dict) or dados.get("versao") != "V12-final-v12_extra_030":
+            estado = "manifesto_incompativel"
+        else:
+            hashes = dados.get("artefatos_sha256")
+            try:
+                validos = isinstance(hashes, dict) and all(
+                    _sha256(modelo) == hashes.get(modelo.name) for modelo in modelos
+                )
+                estado = "pronto" if validos else "integridade_invalida"
+            except FileNotFoundError:
+                estado = "artefatos_ausentes"
+            except OSError:
+                estado = "integridade_invalida"
     return {
-        "pronto": pronto,
+        "pronto": estado == "pronto",
         "oof": dados.get("paridade_oof", {}) if isinstance(dados, dict) else {},
+        "estado": estado,
     }
 
 
@@ -664,10 +689,33 @@ def classificar_alteracoes(arquivos: list, categoria: str | None = None) -> dict
     return {'indicio_forte': sinal,'observacao': nota}
 
 
+def _analise_estrutural(repositorio: Path, git: dict) -> dict:
+    """Analisa somente os objetos Python do SHA já resolvido pelo leitor Git."""
+    ignorados = [
+        {"caminho": arquivo["arquivo"], "motivo": "extensao_nao_suportada"}
+        for arquivo in git["arquivos"]
+        if not arquivo["arquivo"].endswith((".py", ".pyi"))
+    ]
+    try:
+        from commitx.analise_ast import analisar_ast
+        from commitx.versoes_git import ler_versoes_git
+
+        resultado = analisar_ast(ler_versoes_git(repositorio, git["commit"]))
+    except Exception:
+        resultado = {
+            "commit": git["commit"], "comparado_com": git["comparado_com"],
+            "cobertura": "indisponivel", "limitacoes": ["falha_analise_estrutural"],
+            "arquivos": [], "evidencias": [],
+        }
+    return {**resultado, "arquivos_ignorados": ignorados}
+
+
 def criar_handler(artefatos: Path, repositorio: Path):
+    """Aceita `analise_estrutural: true` no POST da rota Git."""
     class Handler(BaseHTTPRequestHandler):
         def _json(self, status: int, dados: dict):
-            payload = json.dumps(dados, ensure_ascii=False).encode("utf-8")
+            # Caminhos Git podem conter bytes que os nomes em Unicode não representam.
+            payload = json.dumps(dados, ensure_ascii=False).encode("utf-8", "backslashreplace")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
@@ -716,15 +764,51 @@ def criar_handler(artefatos: Path, repositorio: Path):
                     referencia = dados.get("commit", "HEAD") if isinstance(dados, dict) else None
                     if not isinstance(referencia, str) or not re.fullmatch(r"(?:HEAD(?:~[0-9]{1,3})?|[0-9a-fA-F]{7,40})", referencia):
                         raise ValueError("Use HEAD, HEAD~1 ou SHA hexadecimal de 7 a 40 caracteres.")
-                    git = analisar_commit(repositorio, referencia, max_chars=6000)
-                    resultado = None
+                    solicitar_ast = dados.get("analise_estrutural", False)
+                    if not isinstance(solicitar_ast, bool):
+                        raise ValueError("O campo analise_estrutural deve ser booleano.")
                     try:
-                        resultado = classificar({"titulo": git["titulo"], "descricao": git["descricao"], "modo": "auto"}, artefatos)
-                    except (FileNotFoundError, ValueError, OSError) as erro:
-                        print("[Aviso V12 durante leitura Git]", str(erro), file=sys.stderr)
-                    categoria = (resultado or {}).get("classificacao", {}).get("categoria_sugerida")
-                    self._json(200, {"git": git, "analise": resultado,
-                                     "sinais": classificar_alteracoes(git["arquivos"], categoria)})
+                        git = analisar_commit(repositorio, referencia, max_chars=6000)
+                    except (ValueError, OSError):
+                        self._json(400, {"erro": (
+                            "Não foi possível ler o commit. "
+                            "Verifique a referência e o repositório Git configurado."
+                        )})
+                        return
+
+                    resultado = None
+                    aviso_v12 = None
+                    try:
+                        resultado = classificar({
+                            "titulo": git["titulo"], "descricao": git["descricao"], "modo": "auto",
+                        }, artefatos)
+                    except FileNotFoundError:
+                        aviso_v12 = "Os modelos locais da V12 estão indisponíveis."
+                    except Exception:
+                        aviso_v12 = "A classificação textual da V12 falhou para este commit."
+
+                    classificacao = resultado["classificacao"] if resultado else {}
+                    categoria = classificacao.get("categoria_sugerida")
+                    diff = None
+                    try:
+                        diff = analisar_diff(git)
+                        comparacao = comparar_commit(classificacao, diff)
+                    except Exception:
+                        mensagem = "A análise do código ou a comparação falhou para este commit."
+                        comparacao = {
+                            "status": "inconclusivo", "categoria_textual": categoria,
+                            "categorias_codigo": [], "explicacao": mensagem,
+                            "evidencias": [], "avisos": [mensagem],
+                        }
+                    if aviso_v12:
+                        comparacao["avisos"].append(aviso_v12)
+                        comparacao["explicacao"] = aviso_v12
+                    resposta = {"git": git, "analise": resultado,
+                                "sinais": classificar_alteracoes(git["arquivos"], categoria),
+                                "analise_codigo": {"diff": diff, "comparacao": comparacao}}
+                    if solicitar_ast:
+                        resposta["analise_estrutural"] = _analise_estrutural(repositorio, git)
+                    self._json(200, resposta)
                 elif rota == "/api/comparar":
                     # Mesma entrada, pipeline real de cada modo: nenhuma predicao ficticia.
                     com = classificar({**dados, "modo": "com_prefixo"}, artefatos)["classificacao"]
@@ -736,7 +820,7 @@ def criar_handler(artefatos: Path, repositorio: Path):
                 self._json(400, {"erro": str(erro)})
             except Exception as erro:
                 # Mostrar detalhes somente no terminal, nao ao navegador.
-                print(f"[Erro de classificacao] {type(erro).__name__}: {erro}", file=sys.stderr)
+                print(f"[Erro de classificacao] {type(erro).__name__}", file=sys.stderr)
                 self._json(500, {"erro": "Falha interna. Verifique o terminal do CommitX."})
     return Handler
 
@@ -750,8 +834,9 @@ def main(argv=None):
     if not 1024 <= args.porta <= 65535:
         parser.error("Porta deve estar entre 1024 e 65535.")
     pasta = args.artefatos.resolve()
-    if not situacao(pasta)["pronto"]:
-        print("AVISO: Modelos finais V12 não encontrados na pasta:", pasta)
+    status = situacao(pasta)
+    if not status["pronto"]:
+        print(f"AVISO: V12 indisponível ({status['estado']}) na pasta {pasta}")
         print("O site abre para demonstração, mas a classificação só funcionará após restaurar os artefatos locais de treinamento.")
     servidor = ThreadingHTTPServer(("127.0.0.1", args.porta), criar_handler(pasta, args.repositorio.expanduser().resolve()))
     print(f"\nCommitX V12 disponível em http://127.0.0.1:{args.porta}")

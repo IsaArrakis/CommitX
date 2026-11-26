@@ -1,81 +1,68 @@
 # CommitX
 
-Protótipo acadêmico em Python que classifica a intenção de mensagens de commit e recomenda melhorias de escrita. Recebe título e descrição e sugere uma de cinco categorias: `fix`, `feat`, `docs`, `refactor` ou `test`.
-
-A classificação usa aprendizado supervisionado. A revisão de escrita usa regras explicáveis e não atribui nota de clareza. A classificação atual não lê o diff para confirmar o que mudou no código. Um leitor experimental separado permite inspecionar alterações, sem realizar classificação.
+O CommitX é um protótipo acadêmico para classificar mensagens de commit e inspecionar alterações em repositórios Git locais. A versão oficial do classificador é a **V12 congelada**, com TF-IDF, sinais textuais e `LinearSVC`.
 
 ## Começar no Linux
 
-Você precisa de Python 3.10 ou superior, Git e acesso autorizado ao repositório privado. Autentique sua conta do GitHub no cliente Git que utiliza. Não coloque senhas ou tokens no código ou na URL do repositório.
-
-No terminal, entre na pasta em que deseja guardar o projeto e clone em uma pasta nova:
+Use Git e Python 3.12 com `venv`, a versão usada pelo CI em Linux. Para acompanhar a entrega desta branch, clone `feat/commitx-v2-robustez` e entre na raiz do projeto.
 
 ```bash
-git clone https://github.com/IsaArrakis/CommitX.git
+git clone --branch feat/commitx-v2-robustez https://github.com/IsaArrakis/CommitX.git
 cd CommitX
-python3 -m venv .venv
+python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python commits.py
+.venv/bin/python commitx_site_git_v12.py --repositorio .
 ```
 
-Os comandos usam o Python do ambiente virtual diretamente e funcionam em Bash e Fish, sem ativação. Se o Git informar que o repositório não existe, confira a conta autenticada e seu acesso ao repositório privado. Se a pasta `CommitX` já existir, escolha outra pasta de destino para o clone; não sobrescreva seus arquivos.
+Abra o site em [127.0.0.1:8765](http://127.0.0.1:8765). Passe `--repositorio /caminho/de/outro/clone` para analisar commits de outro repositório local. Os caminhos usados pelo servidor são definidos na inicialização.
 
-Outra opção é abrir o repositório no GitHub, escolher **Code → Download ZIP**, extrair e abrir o terminal dentro da pasta que contém `commits.py`. Nesse caso, comece pelo comando `python3 -m venv .venv`. Para acompanhar novas versões com `git pull --ff-only`, use um clone autenticado; um ZIP não contém o histórico Git.
+## Classificação textual V12
 
-Uma pasta antiga chamada `commit-claro` não se torna um clone do CommitX automaticamente. Use a cópia clonada para executar estes comandos e acompanhar as alterações do repositório.
-
-Sem argumentos, o programa abre o modo interativo. Digite um título e, opcionalmente, uma descrição de uma linha. Ele treina uma vez ao iniciar e reutiliza o modelo durante a sessão. Um título vazio ou `Ctrl+C` encerra.
-
-## Consultar mudanças reais de um commit (experimento CommitX 2.0)
-
-O leitor de diff mostra a mensagem, o nome dos arquivos alterados, as contagens de linhas e uma prévia das alterações. **Esta função não classifica commits automaticamente e não modifica o código nem os rótulos existentes.**
+A V12 aprende com títulos rotulados e sugere `fix`, `feat`, `docs`, `refactor` ou `test`. A descrição opcional alimenta apenas a revisão de escrita por regras. Escolha o modo automático, com prefixo ou sem prefixo no site, ou use a CLI:
 
 ```bash
-.venv/bin/python -m commitx.leitor_diff --repositorio . --commit HEAD
-.venv/bin/python -m commitx.leitor_diff --repositorio . --commit 'HEAD~1' --json
+.venv/bin/python commits.py analisar-v12 'docs: Atualizar guia de instalação' --modo sem_prefixo --json
 ```
 
-Em commits de merge, compara o resultado com o primeiro pai; no primeiro commit, mostra os arquivos adicionados. A prévia pode ser truncada, e o código não equivale a um entendimento semântico automático. Veja [Etapa 1 — git diff](docs/ETAPA_1_GIT_DIFF.md).
+O site procura `manifesto.json`, `v12_com_prefixo.joblib` e `v12_sem_prefixo.joblib` em `resultados/modelo-final-v12-01/`. Use `--artefatos /caminho/dos/artefatos` para indicar outra pasta de origem confiável. Com o servidor aberto, consulte [o estado dos modelos](http://127.0.0.1:8765/api/status). O campo `pronto` indica que a versão do manifesto e os dois hashes foram verificados. Com os modelos ausentes, a previsão textual fica indisponível, e a leitura Git e a AST continuam utilizáveis. A comparação com a previsão fica inconclusiva. [Artefatos e estados da V12](docs/V12_FINAL.md#verificar-os-artefatos-e-iniciar-o-site)
 
-## Analisar mensagens
+## Leitura Git e análise estrutural
+
+1. **Leitura Git.** Expanda **Analisar um commit existente do Git** e informe `HEAD` ou um SHA. O relatório apresenta mensagem, arquivos, contagens e uma prévia de até 6.000 caracteres. O leitor compara merges com o primeiro pai. Uma prévia truncada limita a comparação heurística baseada no diff.
+2. **Análise AST opcional.** Marque **Incluir análise estrutural de arquivos Python** antes de analisar. O leitor obtém as versões anterior e posterior de arquivos `.py` e `.pyi` a partir do Git local. O painel **Evidências estruturais** mostra mudanças observadas na árvore sintática, como funções, assinaturas e condições, com os locais disponíveis. Limites de leitura ou código inválido podem reduzir a cobertura. A análise é estática.
+3. **Comparação existente.** O relatório coloca a previsão textual ao lado das heurísticas de caminhos e do diff. Os fatos da AST ficam em uma seção separada. Compatibilidade indica concordância entre os sinais disponíveis. O comportamento em execução e a intenção pedem revisão humana.
+
+Para consultar metadados e prévia no terminal:
 
 ```bash
-.venv/bin/python commits.py analisar "fix(admin): bug no painel"
-.venv/bin/python commits.py analisar "Corrigir paginação de usuários" --descricao "A segunda página repetia os registros da primeira."
-.venv/bin/python commits.py analisar "docs: corrigir link de instalação no README" --json
-.venv/bin/python commits.py interativo --modelo palavras
+.venv/bin/python -m commitx.leitor_diff --repositorio . --commit HEAD --json
 ```
 
-O modo `--json` imprime a mesma análise em formato estruturado. O modelo padrão é `misto`; `--modelo palavras` seleciona a alternativa baseada somente em palavras. Para usar outra base já rotulada:
+## Resultados da V12
+
+Os resultados históricos de validação cruzada são exploratórios e descrevem o conjunto de desenvolvimento. A avaliação externa cega tem protocolo e ferramentas de preparação. A amostra revisada e as métricas externas da V12 seguem pendentes. [Resultados históricos e limitações](docs/V12_FINAL.md#resultados-históricos-e-avaliação-externa) · [Protocolo externo](docs/AVALIACAO_EXTERNA_V12.md)
+
+## Testes
 
 ```bash
-.venv/bin/python commits.py analisar "Adicionar filtro por status" --dados dados/commits_revisados.csv --modelo misto
-.venv/bin/python commits.py interativo --dados dados/commits_revisados.csv
+.venv/bin/python -m unittest discover -s testes -v
+.venv/bin/python -m unittest discover -s tests -v
 ```
 
-A saída separa o tipo declarado no cabeçalho, a categoria sugerida e os alertas de escrita. Uma divergência entre tipo e previsão pede revisão humana; ela não prova que o autor errou. Tipos explicitamente declarados fora das cinco classes e textos sem características conhecidas não recebem sugestão automática. Isso não detecta todos os casos fora do escopo.
+O GitHub Actions roda as duas descobertas separadamente em pushes e pull requests. As suítes usam fixtures, modelos de teste pequenos e repositórios Git temporários. Uma falha ou erro reportado pelo `unittest` reprova a suíte. Casos declarados como `skipped` são listados pelo próprio `unittest`, com o motivo. A inferência com os modelos oficiais e a avaliação externa exigem artefatos e dados locais.
 
-Os modelos para preencher contêm campos entre colchetes. O autor precisa completá-los com informações reais; o programa não inventa o bug ou a implementação. “Arrumar” não é uma palavra proibida. O problema de “arrumar bug no painel” é não identificar qual comportamento mudou.
+## Demonstrações e experimentos anteriores
 
-## Ler alterações de um commit (Fase 1 do CommitX 2.0)
+Os comandos históricos abaixo continuam disponíveis em `commits.py`. `analisar` e `avaliar` exercitam a demonstração acadêmica. `analisar-v12` utiliza a configuração congelada da V12.
 
-O leitor experimental consulta um **repositório Git local**, apresenta a mensagem do commit, nomes de arquivos, contagens de linhas e um trecho do `git diff`. Para commits de merge, utiliza as mudanças em relação ao primeiro pai. Ele **não classifica** o commit nem altera arquivos ou o SQLite de rótulos.
-
-```bash
-.venv/bin/python -m commitx.leitor_diff --repositorio . --commit HEAD
-.venv/bin/python -m commitx.leitor_diff --repositorio . --commit 'HEAD~1' --json
-```
-
-Veja o tutorial [Entendendo o git diff](docs/ETAPA_1_GIT_DIFF.md). Esta é apenas a primeira fase da pesquisa: o classificador textual ainda não usa o diff.
-
-## Avaliar e gerar relatórios
+### Avaliar os modelos da demonstração
 
 ```bash
 .venv/bin/python commits.py avaliar
 .venv/bin/python commits.py avaliar --dados dados/commits_revisados.csv --folds 5 --saida resultados_reais
 ```
 
-A avaliação compara três alternativas nas mesmas divisões dos dados:
+A demonstração compara estas três alternativas nas mesmas divisões dos dados:
 
 | Alternativa | Características e classificador |
 | --- | --- |
@@ -105,7 +92,7 @@ Não compare diretamente o antigo resultado de `0,40`, obtido com um teste de de
 
 Os resultados verificados desta base estão em [Resultados da demonstração](docs/RESULTADOS_DEMONSTRACAO.md).
 
-## Dados e coleta de commits reais
+### Dados e coleta de commits reais
 
 `dados/commits_exemplo.csv` mantém os 50 exemplos sintéticos da base inicial, dez por categoria, criados com assistência de IA e identificados como `sintetico_didatico`. Eles servem para aprender e demonstrar o fluxo. Não são commits coletados de projetos reais.
 
@@ -139,16 +126,4 @@ A exportação deixa `categoria` vazia e acrescenta `tipo_declarado` como inform
 
 O histórico de um CommitX recém-criado tende a ser pequeno e pouco variado. Escolha um repositório com histórico suficiente para seu experimento, registre a origem e não apresente exemplos inventados como dados reais.
 
-## Organização e limites
-
-`commits.py` é a entrada do terminal. O pacote `commitx/` separa o código em quatro módulos: `dados.py` para leitura e coleta, `escrita.py` para regras, `modelo.py` para aprendizado e avaliação, e `relatorios.py` para exportação. Para executar as verificações automatizadas:
-
-```bash
-.venv/bin/python -m unittest discover -s testes -v
-```
-
-A avaliação é exploratória e não possui teste externo independente. Resultados sintéticos não demonstram desempenho em repositórios reais. Ajustes escolhidos após observar os erros precisam de avaliação posterior em dados independentes. As métricas de classificação não avaliam clareza.
-
-As regras de escrita são simples, em português, e não atribuem pontuação. Ausência de alertas não comprova clareza. O cabeçalho reconhecido não valida toda a especificação de Conventional Commits; uma mensagem curta pode ser suficiente, e o corpo é opcional quando o título explica a alteração.
-
-Veja [o guia de estudo e entrega](docs/GUIA_DO_TRABALHO.md). Referências: [Conventional Commits](https://www.conventionalcommits.org/pt-br/v1.0.0/), [TF-IDF](https://scikit-learn.org/stable/modules/feature_extraction.html#text-feature-extraction) e [Regressão Logística](https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression).
+Veja também o [guia de estudo e entrega](docs/GUIA_DO_TRABALHO.md).
