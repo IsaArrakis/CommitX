@@ -3,7 +3,8 @@
 from copy import deepcopy
 
 
-def comparar_commit(classificacao_v12: dict, analise_diff: dict) -> dict:
+def comparar_commit(classificacao_v12: dict, analise_diff: dict, *,
+                    versao: str = "V12", trecho: str = "prévia") -> dict:
     """Recebe os retornos de analisar_modelo e analisar_diff."""
     categoria_textual = classificacao_v12.get("categoria_sugerida")
     caminhos = analise_diff.get("indicios", {})
@@ -21,23 +22,23 @@ def comparar_commit(classificacao_v12: dict, analise_diff: dict) -> dict:
     if evidencias_caminhos:
         avisos.extend(caminhos.get("limites", []))
     if evidencias_codigo:
-        avisos.append("Os sinais de implementação dependem dos trechos Python analisáveis na prévia.")
+        avisos.append(f"Os sinais de implementação dependem dos trechos Python analisáveis na {trecho}.")
 
     truncado = analise_diff.get("diff_truncado") or codigo.get("diff_truncado")
     previa_parcial = analise_diff.get("estado") == "parcial"
     if truncado:
-        avisos.append("A prévia do diff foi truncada e pode omitir alterações relevantes.")
+        avisos.append(f"A {trecho} do diff foi truncada e pode omitir alterações relevantes.")
     elif previa_parcial:
         avisos.append("A leitura do diff tem cobertura parcial.")
     codigo_insuficiente = evidencias_codigo and codigo.get("previa_insuficiente")
     if codigo_insuficiente and not (truncado or previa_parcial):
-        avisos.append("A prévia é insuficiente para avaliar os indícios de implementação.")
+        avisos.append(f"A {trecho} é insuficiente para avaliar os indícios de implementação.")
 
     status = "inconclusivo"
     if truncado or previa_parcial or codigo_insuficiente:
-        explicacao = "A prévia do diff é insuficiente para concluir a comparação."
+        explicacao = f"A {trecho} do diff é insuficiente para concluir a comparação."
     elif categoria_textual is None:
-        explicacao = "A V12 se absteve da previsão textual."
+        explicacao = f"A {versao} se absteve da previsão textual."
     elif not categorias:
         explicacao = "O diff não forneceu indícios de categoria suficientes."
     elif len(categorias) > 1 or caminhos.get("misto"):
