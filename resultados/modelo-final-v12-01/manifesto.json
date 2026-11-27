@@ -1,0 +1,77 @@
+{
+  "projeto": "CommitX",
+  "versao": "V12-final-v12_extra_030",
+  "modelo": "TF-IDF palavra 1-2 + sinais V11 + sinais V12 + LinearSVC",
+  "configuracao_congelada": {
+    "C": 0.3,
+    "random_state": 42,
+    "peso_sinais_v11": 0.5,
+    "peso_sinais_v12": 0.3,
+    "fatores_peso_docs_refactor": [
+      1.75,
+      1.5
+    ],
+    "tfidf_ngram_range": [
+      1,
+      2
+    ],
+    "tfidf_max_features": 50000
+  },
+  "commits_rotulados": 397,
+  "grupos": 310,
+  "classes": [
+    "fix",
+    "feat",
+    "docs",
+    "refactor",
+    "test"
+  ],
+  "contagem_por_classe": {
+    "fix": 131,
+    "feat": 104,
+    "docs": 33,
+    "refactor": 54,
+    "test": 75
+  },
+  "preprocessamento": {
+    "com_prefixo": "titulo original como recebido",
+    "sem_prefixo": "texto_modelo(titulo, \"\")",
+    "descricao_no_modelo": false
+  },
+  "paridade_oof": {
+    "com_prefixo": {
+      "acuracia_oof": 0.8463476070528967,
+      "macro_f1_oof": 0.846775788228092,
+      "previsoes_iguais": 397
+    },
+    "sem_prefixo": {
+      "acuracia_oof": 0.7128463476070529,
+      "macro_f1_oof": 0.7205066427725624,
+      "previsoes_iguais": 397
+    }
+  },
+  "artefatos_sha256": {
+    "v12_com_prefixo.joblib": "42e8360add6f64633828c018616bd1047c33ada303c9cff24939ad1bb0f5ee95",
+    "v12_sem_prefixo.joblib": "f37657be0921feff832c372a8c978de9b4b73a635bfb68d533e9029c8d20405c"
+  },
+  "entrada_sha256": "4e9475276b943523f13c9ab237db6e7caac37af7cd94dfae6dbf9afe338de9b6",
+  "referencias_sha256": {
+    "com_prefixo": "b421b23ecc5d730568be634d6e364e313dc16cfb390c3b41aa7b7c4fe408c714",
+    "sem_prefixo": "eca5cad8230216c88c2d00e5d494fde3570602a9e282e5867df3e197c02ae1b6"
+  },
+  "ambiente": {
+    "python": "3.14.9",
+    "scikit_learn": "1.9.1",
+    "numpy": "2.5.5",
+    "joblib": "1.6.0"
+  },
+  "criado_utc": "2026-11-23T16:17:17+00:00",
+  "limitacoes": [
+    "Resultados OOF exploratorios: sinais e modelos foram escolhidos apos examinar a mesma base.",
+    "Nao existe evidencia de acuracia em repositorios novos ou de confianca calibrada.",
+    "Modelo COM prefixo pode reproduzir tipo declarado sem conhecer o codigo.",
+    "A classificacao usa titulo, nao descricao nem diff.",
+    "1603 candidatos com rotulos gerados por IA nao foram usados.",
+    "Nao carregar joblib nao confiavel; pode executar codigo arbitrario."
+  ]
+}
