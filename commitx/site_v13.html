@@ -82,9 +82,10 @@ table {width: 100%; border-collapse: collapse; text-align: left}
 th, td {padding: 8px; border-bottom: 1px solid var(--line)}
 </style>
 </head>
-<body>
+<body data-classificador="V13">
 <main class="container">
 <h1>Classificação de commits</h1>
+<!-- VERSAO_INTEGRACAO -->
 <div class="work">
 <section class="panel" aria-labelledby="form-heading">
 <h2 id="form-heading">Analisar mensagem</h2>
@@ -168,6 +169,7 @@ th, td {padding: 8px; border-bottom: 1px solid var(--line)}
 const $=id=>document.getElementById(id);
 const DESC={fix:'Correção de comportamento incorreto.',feat:'Adição de funcionalidade.',docs:'Alteração na documentação.',refactor:'Reorganização interna do código.',test:'Criação ou alteração de testes.'};
 const HIST=[];
+const MODELO=document.body.dataset.classificador;
 function appendText(to,tag,value){const el=document.createElement(tag);el.textContent=String(value);to.appendChild(el);return el}
 function setResult(category,description,error=false){
   $('area-resultado').hidden=false;$('result').classList.add('visible');
@@ -183,7 +185,7 @@ async function checkStatus(){
  try{
   const d=await getJson('/api/status',{cache:'no-store'});
   if(d.pronto)return;
-  aviso.textContent='Modelo V13 indisponível. Verifique os arquivos do modelo no terminal.';
+  aviso.textContent='Modelo '+MODELO+' indisponível. Verifique os arquivos do modelo no terminal.';
  }catch(e){aviso.textContent='Falha ao consultar o modelo: '+e.message}
  aviso.hidden=false;
 }
@@ -364,7 +366,7 @@ function renderGit(dados) {
   if (git.merge) appendText(summary, 'p', 'Diff comparado ao primeiro pai do merge.');
 
   const categoria = classificacao?.categoria_sugerida;
-  $('git-category').textContent = 'Categoria prevista pela V13: ' +
+  $('git-category').textContent = 'Categoria prevista pela '+MODELO+': ' +
     (categoria || classificacao?.motivo || dados.aviso_modelo || 'Sem sugestão');
   $('git-status').textContent = STATUS_GIT.get(comparacao?.status) || 'Não foi possível determinar';
   $('git-explanation').textContent = comparacao?.explicacao || 'A comparação do código está indisponível.';
