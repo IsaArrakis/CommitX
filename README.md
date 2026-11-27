@@ -1,20 +1,20 @@
 # CommitX
 
-O CommitX é um protótipo acadêmico para classificar mensagens de commit e inspecionar alterações em repositórios Git locais. A versão oficial do classificador é a **V12 congelada**, com TF-IDF, sinais textuais e `LinearSVC`.
+O CommitX é um protótipo acadêmico para classificar mensagens de commit e inspecionar alterações em repositórios Git locais. A versão oficial do site é a **V14**, com o classificador **V12 congelado**, que usa TF-IDF, sinais textuais e `LinearSVC`.
 
 ## Começar no Linux
 
-Use Git e Python 3.12 com `venv`, a versão usada pelo CI em Linux. Para acompanhar a entrega desta branch, clone `feat/commitx-v2-robustez` e entre na raiz do projeto.
+Clone o repositório e execute o site na raiz do projeto. Se já usa a V12, reutilize o ambiente Python e a pasta de modelos existentes. Para criar um ambiente, os comandos abaixo usam Python 3.12, a versão do CI em Linux.
 
 ```bash
-git clone --branch feat/commitx-v2-robustez https://github.com/IsaArrakis/CommitX.git
+git clone https://github.com/IsaArrakis/CommitX.git
 cd CommitX
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python commitx_site_git_v12.py --repositorio .
+.venv/bin/python commitx_site_git_v14.py --repositorio .
 ```
 
-Abra o site em [127.0.0.1:8765](http://127.0.0.1:8765). Passe `--repositorio /caminho/de/outro/clone` para analisar commits de outro repositório local. Os caminhos usados pelo servidor são definidos na inicialização.
+Abra o site em [127.0.0.1:8767](http://127.0.0.1:8767). Passe `--repositorio /caminho/de/outro/clone` para analisar commits de outro repositório local. Os caminhos usados pelo servidor são definidos na inicialização.
 
 ## Classificação textual V12
 
@@ -24,11 +24,11 @@ A V12 aprende com títulos rotulados e sugere `fix`, `feat`, `docs`, `refactor` 
 .venv/bin/python commits.py analisar-v12 'docs: Atualizar guia de instalação' --modo sem_prefixo --json
 ```
 
-O site procura `manifesto.json`, `v12_com_prefixo.joblib` e `v12_sem_prefixo.joblib` em `resultados/modelo-final-v12-01/`. Use `--artefatos /caminho/dos/artefatos` para indicar outra pasta de origem confiável. Com o servidor aberto, consulte [o estado dos modelos](http://127.0.0.1:8765/api/status). O campo `pronto` indica que a versão do manifesto e os dois hashes foram verificados. Com os modelos ausentes, a previsão textual fica indisponível, e a leitura Git e a AST continuam utilizáveis. A comparação com a previsão fica inconclusiva. [Artefatos e estados da V12](docs/V12_FINAL.md#verificar-os-artefatos-e-iniciar-o-site)
+O site procura `manifesto.json`, `v12_com_prefixo.joblib` e `v12_sem_prefixo.joblib` em `resultados/modelo-final-v12-01/`. Use `--artefatos /caminho/dos/artefatos` para indicar outra pasta de origem confiável. Com o servidor aberto, consulte [o estado dos modelos](http://127.0.0.1:8767/api/status). O campo `pronto` indica que a versão do manifesto e os dois hashes foram verificados. Com os modelos ausentes, a previsão textual fica indisponível, e a leitura Git e a AST continuam utilizáveis. A comparação com a previsão fica inconclusiva. [Artefatos e estados da V12](docs/V12_FINAL.md#verificar-os-artefatos-e-iniciar-o-site)
 
 ## Leitura Git e análise estrutural
 
-1. **Leitura Git.** Expanda **Analisar um commit existente do Git** e informe `HEAD` ou um SHA. O relatório apresenta mensagem, arquivos, contagens e uma prévia de até 6.000 caracteres. O leitor compara merges com o primeiro pai. Uma prévia truncada limita a comparação heurística baseada no diff.
+1. **Leitura Git.** Expanda **Analisar um commit existente do Git** e escolha um dos últimos 30 commits ou informe `HEAD` ou um SHA. O relatório apresenta mensagem, arquivos, contagens e uma prévia de até 6.000 caracteres. A comparação heurística analisa até 100.000 caracteres do diff. O leitor compara merges com o primeiro pai. Use **Importar mensagem para o formulário** para copiar a mensagem ao painel manual.
 2. **Análise AST opcional.** Marque **Incluir análise estrutural de arquivos Python** antes de analisar. O leitor obtém as versões anterior e posterior de arquivos `.py` e `.pyi` a partir do Git local. O painel **Evidências estruturais** mostra mudanças observadas na árvore sintática, como funções, assinaturas e condições, com os locais disponíveis. Limites de leitura ou código inválido podem reduzir a cobertura. A análise é estática.
 3. **Comparação existente.** O relatório coloca a previsão textual ao lado das heurísticas de caminhos e do diff. Os fatos da AST ficam em uma seção separada. Compatibilidade indica concordância entre os sinais disponíveis. O comportamento em execução e a intenção pedem revisão humana.
 
@@ -38,9 +38,9 @@ Para consultar metadados e prévia no terminal:
 .venv/bin/python -m commitx.leitor_diff --repositorio . --commit HEAD --json
 ```
 
-## Resultados da V12
+## Resultados e ablação
 
-Os resultados históricos de validação cruzada são exploratórios e descrevem o conjunto de desenvolvimento. A avaliação externa cega tem protocolo e ferramentas de preparação. A amostra revisada e as métricas externas da V12 seguem pendentes. [Resultados históricos e limitações](docs/V12_FINAL.md#resultados-históricos-e-avaliação-externa) · [Protocolo externo](docs/AVALIACAO_EXTERNA_V12.md)
+Os resultados históricos de validação cruzada são exploratórios e descrevem o conjunto de desenvolvimento. A avaliação externa cega tem protocolo e ferramentas de preparação. A amostra revisada e as métricas externas da V12 seguem pendentes. [Resultados históricos e limitações](docs/V12_FINAL.md#resultados-históricos-e-avaliação-externa) · [Protocolo externo](docs/AVALIACAO_EXTERNA_V12.md) · [Integração V14 e resultados da ablação](docs/V14_INTEGRACAO.md)
 
 ## Testes
 
